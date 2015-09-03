@@ -1,14 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using log4net;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models.EntityBase;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.Rdbms;
-using Umbraco.Core.Persistence.Caching;
+
 using Umbraco.Core.Persistence.Factories;
 using Umbraco.Core.Persistence.Querying;
 using Umbraco.Core.Persistence.Relators;
+using Umbraco.Core.Persistence.SqlSyntax;
 using Umbraco.Core.Persistence.UnitOfWork;
 
 namespace Umbraco.Core.Persistence.Repositories
@@ -16,15 +18,11 @@ namespace Umbraco.Core.Persistence.Repositories
     /// <summary>
     /// Represents a repository for doing CRUD operations for <see cref="IMemberType"/>
     /// </summary>
-    internal class MemberTypeRepository : ContentTypeBaseRepository<int, IMemberType>, IMemberTypeRepository
+    internal class MemberTypeRepository : ContentTypeBaseRepository<IMemberType>, IMemberTypeRepository
     {
-        public MemberTypeRepository(IDatabaseUnitOfWork work)
-            : base(work)
-        {
-        }
 
-        public MemberTypeRepository(IDatabaseUnitOfWork work, IRepositoryCacheProvider cache)
-            : base(work, cache)
+        public MemberTypeRepository(IDatabaseUnitOfWork work, CacheHelper cache, ILogger logger, ISqlSyntaxProvider sqlSyntax)
+            : base(work, cache, logger, sqlSyntax)
         {
         }
 
@@ -100,7 +98,7 @@ namespace Umbraco.Core.Persistence.Repositories
             }
 
             sql.Select("umbracoNode.*", "cmsContentType.*", "cmsPropertyType.id AS PropertyTypeId", "cmsPropertyType.Alias",
-                "cmsPropertyType.Name", "cmsPropertyType.Description", "cmsPropertyType.helpText", "cmsPropertyType.mandatory",
+                "cmsPropertyType.Name", "cmsPropertyType.Description", "cmsPropertyType.mandatory",
                 "cmsPropertyType.validationRegExp", "cmsPropertyType.dataTypeId", "cmsPropertyType.sortOrder AS PropertyTypeSortOrder",
                 "cmsPropertyType.propertyTypeGroupId AS PropertyTypesGroupId", "cmsMemberType.memberCanEdit", "cmsMemberType.viewOnProfile",
                 "cmsDataType.propertyEditorAlias", "cmsDataType.dbType", "cmsPropertyTypeGroup.id AS PropertyTypeGroupId", 
@@ -149,7 +147,7 @@ namespace Umbraco.Core.Persistence.Repositories
                                "DELETE FROM cmsPropertyType WHERE contentTypeId = @Id",
                                "DELETE FROM cmsPropertyTypeGroup WHERE contenttypeNodeId = @Id",
                                "DELETE FROM cmsMemberType WHERE NodeId = @Id",
-                               "DELETE FROM cmsContentType WHERE NodeId = @Id",
+                               "DELETE FROM cmsContentType WHERE nodeId = @Id",
                                "DELETE FROM umbracoNode WHERE id = @Id"
                            };
             return list;
@@ -170,6 +168,12 @@ namespace Umbraco.Core.Persistence.Repositories
 
             ((MemberType)entity).AddingEntity();
             
+            //set a default icon if one is not specified
+            if (entity.Icon.IsNullOrWhiteSpace())
+            {
+                entity.Icon = "icon-user";
+            }
+
             //By Convention we add 9 stnd PropertyTypes to an Umbraco MemberType
             entity.AddPropertyGroup(Constants.Conventions.Member.StandardPropertiesGroupName);
             var standardPropertyTypes = Constants.Conventions.Member.GetStandardPropertyTypeStubs();
@@ -192,7 +196,7 @@ namespace Umbraco.Core.Persistence.Repositories
                 Database.Insert(memberTypeDto);
             }
 
-            ((ICanBeDirty)entity).ResetDirtyProperties();
+            entity.ResetDirtyProperties();
         }
 
         protected override void PersistUpdatedItem(IMemberType entity)
@@ -203,7 +207,7 @@ namespace Umbraco.Core.Persistence.Repositories
             ((MemberType)entity).UpdatingEntity();
 
             //Look up parent to get and set the correct Path if ParentId has changed
-            if (((ICanBeDirty)entity).IsPropertyDirty("ParentId"))
+            if (entity.IsPropertyDirty("ParentId"))
             {
                 var parent = Database.First<NodeDto>("WHERE id = @ParentId", new { ParentId = entity.ParentId });
                 entity.Path = string.Concat(parent.Path, ",", entity.Id);
@@ -232,7 +236,7 @@ namespace Umbraco.Core.Persistence.Repositories
                 Database.Insert(memberTypeDto);
             }
 
-            ((ICanBeDirty)entity).ResetDirtyProperties();
+            entity.ResetDirtyProperties();
         }
 
         #endregion
@@ -252,7 +256,44 @@ namespace Umbraco.Core.Persistence.Repositories
             return new PropertyType(propertyEditorAlias, propDbType.Result,
                 //This flag tells the property type that it has an explicit dbtype and that it cannot be changed
                 // which is what we want for the built-in properties.
-                propDbType.Success);
+                propDbType.Success,
+                propertyTypeAlias);
+        }
+
+        protected override IMemberType PerformGet(Guid id)
+        {
+            var sql = GetBaseQuery(false);
+            sql.Where("umbracoNode.uniqueID = @Id", new { Id = id });
+            sql.OrderByDescending<NodeDto>(x => x.NodeId);
+
+            var dtos =
+                Database.Fetch<MemberTypeReadOnlyDto, PropertyTypeReadOnlyDto, PropertyTypeGroupReadOnlyDto, MemberTypeReadOnlyDto>(
+                    new PropertyTypePropertyGroupRelator().Map, sql);
+
+            if (dtos == null || dtos.Any() == false)
+                return null;
+
+            var factory = new MemberTypeReadOnlyFactory();
+            var member = factory.BuildEntity(dtos.First());
+
+            return member;
+        }
+
+        protected override IEnumerable<IMemberType> PerformGetAll(params Guid[] ids)
+        {
+            var sql = GetBaseQuery(false);
+            if (ids.Any())
+            {
+                var statement = string.Join(" OR ", ids.Select(x => string.Format("umbracoNode.uniqueID='{0}'", x)));
+                sql.Where(statement);
+            }
+            sql.OrderByDescending<NodeDto>(x => x.NodeId, SqlSyntax);
+
+            var dtos =
+                Database.Fetch<MemberTypeReadOnlyDto, PropertyTypeReadOnlyDto, PropertyTypeGroupReadOnlyDto, MemberTypeReadOnlyDto>(
+                    new PropertyTypePropertyGroupRelator().Map, sql);
+
+            return BuildFromDtos(dtos);
         }
 
         /// <summary>

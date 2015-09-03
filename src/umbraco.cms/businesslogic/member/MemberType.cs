@@ -19,7 +19,11 @@ namespace umbraco.cms.businesslogic.member
         #region Private Members
 
         internal static readonly Guid ObjectType = new Guid(Constants.ObjectTypes.MemberType);
-        internal IMemberType MemberTypeItem;
+        internal IMemberType MemberTypeItem
+        {
+            get { return base.ContentTypeItem as IMemberType; }
+            set { base.ContentTypeItem = value; }
+        }
 
         #endregion
 
@@ -212,7 +216,6 @@ namespace umbraco.cms.businesslogic.member
         /// </summary>
         /// <param name="Text">The name of the MemberType</param>
         /// <param name="u">Creator of the MemberType</param>
-        [MethodImpl(MethodImplOptions.Synchronized)]
         public static MemberType MakeNew(User u, string Text)
         {
             var alias = helpers.Casing.SafeAliasWithForcingCheck(Text);
@@ -222,7 +225,7 @@ namespace umbraco.cms.businesslogic.member
             {
                 Level = 1,
                 Name = Text,
-                Icon = "member.gif",
+                Icon = "icon-user",
                 Alias = alias
             };
             ApplicationContext.Current.Services.MemberTypeService.Save(mt);

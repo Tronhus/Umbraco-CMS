@@ -34,7 +34,7 @@ namespace umbraco.presentation.dialogs
                 Document rollback = new Document(currentDoc.Id, new Guid(allVersions.SelectedValue));
 
                 propertiesCompare.Text = "<tr><th style='width: 25%;' valign='top'>" + ui.Text("general", "name") + ":</th><td>" + rollback.Text + "</td></tr>";
-                propertiesCompare.Text += "<tr><th style='width: 25%;' valign='top'>" + ui.Text("content", "createDate") + ":</th><td>" + rollback.VersionDate.ToLongDateString() + " " + rollback.VersionDate.ToLongTimeString() + " " + ui.Text("general", "by") + ": " + rollback.User.Name + "</td></tr>";
+                propertiesCompare.Text += "<tr><th style='width: 25%;' valign='top'>" + ui.Text("content", "createDate") + ":</th><td>" + rollback.VersionDate.ToLongDateString() + " " + rollback.VersionDate.ToLongTimeString() + " " + ui.Text("general", "by") + ": " + rollback.Writer.Name + "</td></tr>";
 
                 if (rbl_mode.SelectedValue == "diff")
                     lt_notice.Text = ui.Text("rollback", "diffHelp");
@@ -92,13 +92,14 @@ namespace umbraco.presentation.dialogs
                     catch { }
                 }
 
-                pl_buttons.Visible = true;
+                Button1.Visible = true;
+                
 
             }
             else
             {
                 diffPanel.Visible = false;
-                pl_buttons.Visible = false;
+                Button1.Visible = false;
             }
 
         }

@@ -81,7 +81,7 @@ function dataTypeResource($q, $http, umbDataFormatter, umbRequestHelper) {
                    umbRequestHelper.getApiUrl(
                        "dataTypeApiBaseUrl",
                        "GetAll")),
-               'Failed to retreive data');
+               'Failed to retrieve data');
         },
 
         /**
@@ -118,7 +118,7 @@ function dataTypeResource($q, $http, umbDataFormatter, umbRequestHelper) {
                    umbRequestHelper.getApiUrl(
                        "dataTypeApiBaseUrl",
                        "GetEmpty")),
-               'Failed to retreive data for empty datatype');
+               'Failed to retrieve data for empty datatype');
         },
         /**
          * @ngdoc method
@@ -152,23 +152,11 @@ function dataTypeResource($q, $http, umbDataFormatter, umbRequestHelper) {
         
         /**
          * @ngdoc method
-         * @name umbraco.resources.dataTypeResource#deleteById
+         * @name umbraco.resources.dataTypeResource#save
          * @methodOf umbraco.resources.dataTypeResource
          *
          * @description
-         * Saves or update a data typw
-         *
-         * ##usage
-         * <pre>
-         * dataTypeResource.getById(1234)
-         *    .then(function(type) {
-         *        type.name ="hibba";
-         *  
-         *        dataTypeResource.save(type, type.preValues, false).then(function(type){
-         *          alert('its done!');
-         *        }): 
-         *    });
-         * </pre> 
+         * Saves or update a data type       
          * 
          * @param {Object} dataType data type object to create/update
          * @param {Array} preValues collection of prevalues on the datatype

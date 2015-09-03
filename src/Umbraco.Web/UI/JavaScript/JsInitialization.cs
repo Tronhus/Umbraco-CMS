@@ -45,25 +45,10 @@ namespace Umbraco.Web.UI.JavaScript
         public string GetJavascriptInitialization(HttpContextBase httpContext, JArray umbracoInit, JArray additionalJsFiles = null)
         {
             var result = GetJavascriptInitializationArray(httpContext, umbracoInit, additionalJsFiles);
-            var noCache = Resources.JsNoCache;
-
-            //if debugging, add timestamp, if in production we tell yepNope to append umb+cdf version
-            //this is needed even tho cdf does this on its serverside merged js
-            //as assetsService.load() also need to append these versions to ensure cache bursting on updates + pack installs
-            if (httpContext.IsDebuggingEnabled)
-                noCache = noCache.Replace("##rnd##", "(new Date).getTime()");
-            else
-            {
-                //create a unique hash code of the current umb version and the current cdf version
-                var versionHash = UrlHelperExtensions.GetCacheBustHash();
-                var version = "'" + versionHash + "'";
-                noCache = noCache.Replace("##rnd##", version);    
-            }
                 
-                return ParseMain(
-                    noCache,
-                    result.ToString(),
-                    IOHelper.ResolveUrl(SystemDirectories.Umbraco));
+            return ParseMain(
+                result.ToString(),
+                IOHelper.ResolveUrl(SystemDirectories.Umbraco));
         }
 
         public JArray GetJavascriptInitializationArray(HttpContextBase httpContext, JArray umbracoInit, JArray additionalJsFiles = null)
@@ -80,7 +65,7 @@ namespace Umbraco.Web.UI.JavaScript
             }
 
             //now we can optimize if in release mode
-            umbracoInit = CheckIfReleaseAndOptimized(umbracoInit, ClientDependencyType.Javascript, httpContext);
+            umbracoInit = OptimizeAssetCollection(umbracoInit, ClientDependencyType.Javascript, httpContext);
 
             //now we need to merge in any found cdf declarations on property editors
             ManifestParser.MergeJArrays(umbracoInit, ScanPropertyEditors(ClientDependencyType.Javascript, httpContext));

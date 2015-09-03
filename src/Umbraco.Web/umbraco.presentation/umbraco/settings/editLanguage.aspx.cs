@@ -10,12 +10,15 @@ using System.Web.UI;
 using System.Web.UI.WebControls;
 using System.Web.UI.HtmlControls;
 using umbraco.cms.presentation.Trees;
+using Umbraco.Core;
+using Umbraco.Web.Trees;
 
 namespace umbraco.settings
 {
 	/// <summary>
 	/// Summary description for editLanguage.
 	/// </summary>
+    [WebformsPageTreeAuthorize(Constants.Trees.Languages)]
 	public partial class editLanguage : BasePages.UmbracoEnsuredPage
 	{
 	    public editLanguage()
@@ -40,7 +43,7 @@ namespace umbraco.settings
 				updateCultureList();
 
 				ClientTools
-					.SetActiveTreeType(TreeDefinitionCollection.Instance.FindTree<loadLanguages>().Tree.Alias)
+					.SetActiveTreeType(Constants.Trees.Languages)
 					.SyncTree(helper.Request("id"), false);
 			}
 			

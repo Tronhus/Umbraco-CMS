@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -82,9 +82,9 @@
     <AssemblyOriginatorKeyFile>..\Solution Items\TheFARM-Public.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Examine">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>..\packages\Examine.0.1.55.2941\lib\Examine.dll</HintPath>
+    <Reference Include="Examine, Version=0.1.68.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\Examine.0.1.68.0\lib\Examine.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="ICSharpCode.SharpZipLib, Version=0.86.0.518, Culture=neutral, PublicKeyToken=1b03e6acf1164f73, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
@@ -111,6 +111,7 @@
   <ItemGroup>
     <Compile Include="BaseUmbracoIndexer.cs" />
     <Compile Include="Config\IndexSetExtensions.cs" />
+    <Compile Include="Config\LazyIndexCriteria.cs" />
     <Compile Include="DataServices\IContentService.cs" />
     <Compile Include="DataServices\IDataService.cs" />
     <Compile Include="DataServices\ILogService.cs" />
@@ -119,8 +120,17 @@
     <Compile Include="DataServices\UmbracoDataService.cs" />
     <Compile Include="DataServices\UmbracoContentService.cs" />
     <Compile Include="DataServices\UmbracoMediaService.cs" />
+    <Compile Include="DeletePolicyTracker.cs" />
+    <Compile Include="ExamineHelper.cs" />
     <Compile Include="IndexTypes.cs" />
     <Compile Include="LegacyLibrary.cs" />
+    <Compile Include="LocalStorage\LocalStorageType.cs" />
+    <Compile Include="LocalStorage\LocalTempStorageDirectory.cs" />
+    <Compile Include="LocalStorage\LocalTempStorageDirectoryTracker.cs" />
+    <Compile Include="LocalStorage\LocalTempStorageIndexer.cs" />
+    <Compile Include="LocalStorage\MultiIndexLock.cs" />
+    <Compile Include="LocalStorage\MultiIndexLockFactory.cs" />
+    <Compile Include="LocalStorage\MultiIndexOutput.cs" />
     <Compile Include="LoggingLevel.cs" />
     <Compile Include="StaticField.cs" />
     <Compile Include="UmbracoMemberIndexer.cs" />

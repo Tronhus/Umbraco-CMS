@@ -21,13 +21,13 @@ namespace Umbraco.Web.Install.Controllers
     [HttpInstallAuthorize]
     public class InstallApiController : ApiController
     {
-        protected InstallApiController()
+        public InstallApiController()
             : this(UmbracoContext.Current)
         {
 
         }
 
-        protected InstallApiController(UmbracoContext umbracoContext)
+        public InstallApiController(UmbracoContext umbracoContext)
         {
             if (umbracoContext == null) throw new ArgumentNullException("umbracoContext");
             UmbracoContext = umbracoContext;
@@ -55,7 +55,8 @@ namespace Umbraco.Web.Install.Controllers
         public bool PostValidateDatabaseConnection(DatabaseModel model)
         {
             var dbHelper = new DatabaseHelper();
-            return dbHelper.CheckConnection(model, ApplicationContext);
+            var canConnect = dbHelper.CheckConnection(model, ApplicationContext);
+            return canConnect;
         }
 
         /// <summary>
@@ -83,15 +84,9 @@ namespace Umbraco.Web.Install.Controllers
         
         public IEnumerable<Package> GetPackages()
         {
-            var r = new org.umbraco.our.Repository();
-            var modules = r.Modules();
-
-            return modules.Select(package => new Package()
-            {
-                Id = package.RepoGuid,
-                Name = package.Text,
-                Thumbnail = package.Thumbnail
-            });
+            var installHelper = new InstallHelper(UmbracoContext);
+            var starterKits = installHelper.GetStarterKits();
+            return starterKits;
         }
 
         /// <summary>
@@ -262,7 +257,7 @@ namespace Umbraco.Web.Install.Controllers
 
         internal InstallSetupResult ExecuteStep(InstallSetupStep step, JToken instruction)
         {
-            using (DisposableTimer.TraceDuration<InstallApiController>("Executing installation step: " + step.Name, "Step completed"))
+            using (ApplicationContext.ProfilingLogger.TraceDuration<InstallApiController>("Executing installation step: " + step.Name, "Step completed"))
             {
                 var model = instruction == null ? null : instruction.ToObject(step.StepType);
                 var genericStepType = typeof(InstallSetupStep<>);

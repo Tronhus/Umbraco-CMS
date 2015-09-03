@@ -4,15 +4,19 @@ using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Web;
 using System.Web.Script.Serialization;
 using System.Web.UI;
+using umbraco.BusinessLogic;
 using Umbraco.Core;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.IO;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Persistence;
 using Umbraco.Web.Install.InstallSteps;
 using Umbraco.Web.Install.Models;
+
 
 namespace Umbraco.Web.Install
 {
@@ -37,11 +41,12 @@ namespace Umbraco.Web.Install
         public IEnumerable<InstallSetupStep> GetAllSteps()
         {
             return new List<InstallSetupStep>
-            {                
+            {
                 new NewInstallStep(_umbContext.Application),
                 new UpgradeStep(),
                 new FilePermissionsStep(),
                 new MajorVersion7UpgradeReport(_umbContext.Application),
+                new Version73FileCleanup(_umbContext.HttpContext, _umbContext.Application.ProfilingLogger.Logger),
                 new DatabaseConfigureStep(_umbContext.Application),
                 new DatabaseInstallStep(_umbContext.Application),
                 new DatabaseUpgradeStep(_umbContext.Application),
@@ -83,13 +88,55 @@ namespace Umbraco.Web.Install
                 {
                     Directory.Move(IOHelper.MapPath(SystemDirectories.Install), IOHelper.MapPath("~/app_data/temp/install_backup"));
                 }
-            }                
+            }
 
             if (Directory.Exists(IOHelper.MapPath("~/Areas/UmbracoInstall")))
-            {                
+            {
                 Directory.Delete(IOHelper.MapPath("~/Areas/UmbracoInstall"), true);
             }
-                
+        }
+
+        internal void InstallStatus(bool isCompleted, string errorMsg)
+        {
+            try
+            {
+                string userAgent = _umbContext.HttpContext.Request.UserAgent;
+
+                // Check for current install Id
+                Guid installId = Guid.NewGuid();
+                StateHelper.Cookies.Cookie installCookie = new StateHelper.Cookies.Cookie("umb_installId", 1);
+                if (!String.IsNullOrEmpty(installCookie.GetValue()))
+                {
+                    if (Guid.TryParse(installCookie.GetValue(), out installId))
+                    {
+                        // check that it's a valid Guid
+                        if (installId == Guid.Empty)
+                            installId = Guid.NewGuid();
+                    }
+                }
+                installCookie.SetValue(installId.ToString());
+
+                string dbProvider = String.Empty;
+                if (!IsBrandNewInstall)
+                    dbProvider = ApplicationContext.Current.DatabaseContext.DatabaseProvider.ToString();
+
+                org.umbraco.update.CheckForUpgrade check = new org.umbraco.update.CheckForUpgrade();
+                check.Install(installId,
+                    !IsBrandNewInstall,
+                    isCompleted,
+                    DateTime.Now,
+                    UmbracoVersion.Current.Major,
+                    UmbracoVersion.Current.Minor,
+                    UmbracoVersion.Current.Build,
+                    UmbracoVersion.CurrentComment,
+                    errorMsg,
+                    userAgent,
+                    dbProvider);
+            }
+            catch (Exception ex)
+            {
+
+            }
         }
 
         /// <summary>
@@ -121,7 +168,9 @@ namespace Umbraco.Web.Install
                 if (result == 1)
                 {
                     //the user has not been configured
-                    return true;
+                    //this is always true on UaaS, need to check if there's multiple users too
+                    var usersResult = _umbContext.Application.DatabaseContext.Database.ExecuteScalar<int>("SELECT COUNT(*) FROM umbracoUser");
+                    return usersResult == 1;
                 }
 
                 //                //check if there are any content types configured, if there isn't then we will consider this a new install
@@ -137,6 +186,30 @@ namespace Umbraco.Web.Install
 
                 return false;
             }
+        }
+
+        internal IEnumerable<Package> GetStarterKits()
+        {
+            var packages = new List<Package>();
+
+            try
+            {
+                var requestUri = string.Format("http://our.umbraco.org/webapi/StarterKit/Get/?umbracoVersion={0}",
+                    UmbracoVersion.Current);
+
+                using (var request = new HttpRequestMessage(HttpMethod.Get, requestUri))
+                using (var httpClient = new HttpClient())
+                using (var response = httpClient.SendAsync(request).Result)
+                {
+                    packages = response.Content.ReadAsAsync<IEnumerable<Package>>().Result.ToList();
+                }
+            }
+            catch (AggregateException ex)
+            {
+                LogHelper.Error<InstallHelper>("Could not download list of available starter kits", ex);
+            }
+
+            return packages;
         }
     }
 }

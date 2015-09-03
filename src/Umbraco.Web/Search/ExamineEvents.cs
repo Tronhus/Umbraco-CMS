@@ -1,7 +1,6 @@
-﻿using System;
+using System;
 using System.Globalization;
 using System.Linq;
-using System.Security;
 using System.Xml;
 using System.Xml.Linq;
 using Examine;
@@ -11,19 +10,11 @@ using Umbraco.Core;
 using Umbraco.Core.Cache;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
-using Umbraco.Core.Models.EntityBase;
-using Umbraco.Core.Services;
 using Umbraco.Core.Sync;
 using Umbraco.Web.Cache;
 using UmbracoExamine;
-using umbraco;
-using umbraco.BusinessLogic;
-using umbraco.cms.businesslogic;
-using umbraco.cms.businesslogic.member;
-using umbraco.interfaces;
 using Content = umbraco.cms.businesslogic.Content;
 using Document = umbraco.cms.businesslogic.web.Document;
-using Member = umbraco.cms.businesslogic.member.Member;
 
 namespace Umbraco.Web.Search
 {
@@ -60,6 +51,7 @@ namespace Umbraco.Web.Search
             CacheRefresherBase<PageCacheRefresher>.CacheUpdated += PublishedPageCacheRefresherCacheUpdated;
             CacheRefresherBase<MediaCacheRefresher>.CacheUpdated += MediaCacheRefresherCacheUpdated;
             CacheRefresherBase<MemberCacheRefresher>.CacheUpdated += MemberCacheRefresherCacheUpdated;
+            CacheRefresherBase<ContentTypeCacheRefresher>.CacheUpdated += ContentTypeCacheRefresherCacheUpdated;
             
 			var contentIndexer = ExamineManager.Instance.IndexProviderCollection["InternalIndexer"] as UmbracoContentIndexer;
 			if (contentIndexer != null)
@@ -72,6 +64,24 @@ namespace Umbraco.Web.Search
 				memberIndexer.DocumentWriting += IndexerDocumentWriting;
 			}
 		}
+
+        /// <summary>
+        /// This is used to refresh content indexers IndexData based on the DataService whenever a content type is changed since
+        /// properties may have been added/removed
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        /// <remarks>
+        /// See: http://issues.umbraco.org/issue/U4-4798
+        /// </remarks>
+	    static void ContentTypeCacheRefresherCacheUpdated(ContentTypeCacheRefresher sender, CacheRefresherEventArgs e)
+        {
+            var indexersToUpdated = ExamineManager.Instance.IndexProviderCollection.OfType<UmbracoContentIndexer>();
+            foreach (var provider in indexersToUpdated)
+            {
+                provider.RefreshIndexerDataFromDataService();
+            }
+        }
 
 	    static void MemberCacheRefresherCacheUpdated(MemberCacheRefresher sender, CacheRefresherEventArgs e)
 	    {
@@ -155,19 +165,33 @@ namespace Umbraco.Web.Search
                             switch (payload.Operation)
                             {
                                 case MediaCacheRefresher.OperationType.Saved:
-                                    var media = ApplicationContext.Current.Services.MediaService.GetById(payload.Id);
-                                    if (media != null)
+                                    var media1 = ApplicationContext.Current.Services.MediaService.GetById(payload.Id);
+                                    if (media1 != null)
                                     {
-                                        ReIndexForMedia(media, media.Trashed == false);
+                                        ReIndexForMedia(media1, media1.Trashed == false);
                                     }                                    
                                     break;
                                 case MediaCacheRefresher.OperationType.Trashed:
+                                    
                                     //keep if trashed for indexes supporting unpublished
+                                    //(delete the index from all indexes not supporting unpublished content)
+                                    
                                     DeleteIndexForEntity(payload.Id, true);
+
+                                    //We then need to re-index this item for all indexes supporting unpublished content
+                                    var media2 = ApplicationContext.Current.Services.MediaService.GetById(payload.Id);
+                                    if (media2 != null)
+                                    {
+                                        ReIndexForMedia(media2, false);
+                                    }
+
                                     break;
                                 case MediaCacheRefresher.OperationType.Deleted:
+
                                     //permanently remove from all indexes
+                                    
                                     DeleteIndexForEntity(payload.Id, false);
+
                                     break;
                                 default:
                                     throw new ArgumentOutOfRangeException();
@@ -292,9 +316,32 @@ namespace Umbraco.Web.Search
                     {
                         DeleteIndexForEntity(c4.Id, false);
                     }
-                    break;
-                case MessageType.RefreshAll:                
+                    break;                
                 case MessageType.RefreshByJson:
+
+                    var jsonPayloads = UnpublishedPageCacheRefresher.DeserializeFromJsonPayload((string)e.MessageObject);
+                    if (jsonPayloads.Any())
+                    {
+                        foreach (var payload in jsonPayloads)
+                        {
+                            switch (payload.Operation)
+                            {
+                                case UnpublishedPageCacheRefresher.OperationType.Deleted:                                   
+
+                                    //permanently remove from all indexes
+                                    
+                                    DeleteIndexForEntity(payload.Id, false);
+
+                                    break;
+                                default:
+                                    throw new ArgumentOutOfRangeException();
+                            }                            
+                        }                        
+                    }
+
+                    break;
+
+                case MessageType.RefreshAll:                
                 default:
                     //We don't support these, these message types will not fire for unpublished content
                     break;
@@ -336,8 +383,12 @@ namespace Umbraco.Web.Search
         
         private static void ReIndexForMedia(IMedia sender, bool isMediaPublished)
         {
+            var xml = sender.ToXml();
+            //add an icon attribute to get indexed
+            xml.Add(new XAttribute("icon", sender.ContentType.Icon));
+
             ExamineManager.Instance.ReIndexNode(
-                sender.ToXml(), IndexTypes.Media,
+                xml, IndexTypes.Media,
                 ExamineManager.Instance.IndexProviderCollection.OfType<BaseUmbracoIndexer>()
 
                     //Index this item for all indexers if the media is not trashed, otherwise if the item is trashed
@@ -377,8 +428,12 @@ namespace Umbraco.Web.Search
 	    /// </param>
 	    private static void ReIndexForContent(IContent sender, bool isContentPublished)
 	    {
+            var xml = sender.ToXml();
+            //add an icon attribute to get indexed
+            xml.Add(new XAttribute("icon", sender.ContentType.Icon));
+
 	        ExamineManager.Instance.ReIndexNode(
-	            sender.ToXml(), IndexTypes.Content,
+                xml, IndexTypes.Content,
 	            ExamineManager.Instance.IndexProviderCollection.OfType<BaseUmbracoIndexer>()
                     
 	                //Index this item for all indexers if the content is published, otherwise if the item is not published
@@ -409,7 +464,7 @@ namespace Umbraco.Web.Search
 		{
             if (TypeHelper.IsTypeAssignableFrom<Document>(node))
             {
-                return new XDocument(((Document) node).Content.ToXml());
+                return new XDocument(((Document) node).ContentEntity.ToXml());
             }
 
             if (TypeHelper.IsTypeAssignableFrom<global::umbraco.cms.businesslogic.media.Media>(node))

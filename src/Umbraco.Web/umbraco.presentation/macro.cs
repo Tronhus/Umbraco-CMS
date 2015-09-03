@@ -23,16 +23,17 @@ using Umbraco.Core.Events;
 using Umbraco.Core.IO;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Macros;
+using Umbraco.Core.Models;
 using Umbraco.Core.Xml.XPath;
 using Umbraco.Core.Profiling;
 using umbraco.interfaces;
 using Umbraco.Web;
 using Umbraco.Web.Cache;
 using Umbraco.Web.Macros;
+using Umbraco.Web.Models;
 using Umbraco.Web.Templates;
 using umbraco.BusinessLogic;
 using umbraco.cms.businesslogic.macro;
-using umbraco.cms.businesslogic.member;
 using umbraco.DataLayer;
 using umbraco.NodeFactory;
 using umbraco.presentation.templateControls;
@@ -41,6 +42,9 @@ using Content = umbraco.cms.businesslogic.Content;
 using Macro = umbraco.cms.businesslogic.macro.Macro;
 using MacroErrorEventArgs = Umbraco.Core.Events.MacroErrorEventArgs;
 using System.Linq;
+using File = System.IO.File;
+using MacroTypes = umbraco.cms.businesslogic.macro.MacroTypes;
+using Member = umbraco.cms.businesslogic.member.Member;
 
 namespace umbraco
 {
@@ -216,8 +220,17 @@ namespace umbraco
 
             if (CacheByPersonalization)
             {
-                var currentMember = Member.GetCurrentMember();
-                id.AppendFormat("m{0}-", currentMember == null ? 0 : currentMember.Id);
+                object memberId = 0;
+                if (HttpContext.Current.User.Identity.IsAuthenticated)
+                {
+                    var provider = Umbraco.Core.Security.MembershipProviderExtensions.GetMembersMembershipProvider();
+                    var member = Umbraco.Core.Security.MembershipProviderExtensions.GetCurrentUser(provider);
+                    if (member != null)
+                    {
+                        memberId = member.ProviderUserKey ?? 0;
+                    }
+                }
+                id.AppendFormat("m{0}-", memberId);
             }
 
             foreach (var prop in model.Properties)
@@ -333,6 +346,9 @@ namespace umbraco
                                 }
                                 catch (Exception e)
                                 {
+                                    LogHelper.WarnWithException<macro>(
+                                        "Error loading partial view macro (View: " + Model.ScriptName + ")", true, e);
+
                                     renderFailed = true;
                                     Exceptions.Add(e);
                                     macroControl = handleError(e);
@@ -521,11 +537,11 @@ namespace umbraco
         /// <returns></returns>
         private Control AddMacroResultToCache(Control macroControl)
         {
-            // Add result to cache if successful
-            if (Model.CacheDuration > 0)
+            // Add result to cache if successful (and cache is enabled)
+            if (UmbracoContext.Current.InPreviewMode == false && Model.CacheDuration > 0)
             {
                 // do not add to cache if there's no member and it should cache by personalization
-                if (!Model.CacheByMember || (Model.CacheByMember && Member.GetCurrentMember() != null))
+                if (!Model.CacheByMember || (Model.CacheByMember && Member.IsLoggedOn()))
                 {
                     if (macroControl != null)
                     {
@@ -794,9 +810,9 @@ namespace umbraco
         {
             foreach (MacroPropertyModel mp in Model.Properties)
             {
-                if (attributes.ContainsKey(mp.Key.ToLower()))
+                if (attributes.ContainsKey(mp.Key.ToLowerInvariant()))
                 {
-                    var item = attributes[mp.Key.ToLower()];
+                    var item = attributes[mp.Key.ToLowerInvariant()];
 
                     mp.Value = item == null ? string.Empty : item.ToString();
                 }
@@ -1544,13 +1560,13 @@ namespace umbraco
             if (currentNodeProperty != null && currentNodeProperty.CanWrite &&
                 currentNodeProperty.PropertyType.IsAssignableFrom(typeof(Node)))
             {
-                currentNodeProperty.SetValue(control, Node.GetCurrent(), null);
+                currentNodeProperty.SetValue(control, GetCurrentNode(), null);
             }
             currentNodeProperty = type.GetProperty("currentNode");
             if (currentNodeProperty != null && currentNodeProperty.CanWrite &&
                 currentNodeProperty.PropertyType.IsAssignableFrom(typeof(Node)))
             {
-                currentNodeProperty.SetValue(control, Node.GetCurrent(), null);
+                currentNodeProperty.SetValue(control, GetCurrentNode(), null);
             }
         }
 
@@ -1562,7 +1578,7 @@ namespace umbraco
             //Trace out to profiling... doesn't actually profile, just for informational output.
             if (excludeProfiling == false)
             {
-                using (ProfilerResolver.Current.Profiler.Step(string.Format("{0}", message)))
+                using (ApplicationContext.Current.ProfilingLogger.TraceDuration<macro>(string.Format("{0}", message)))
                 {
                 }
             }
@@ -1576,7 +1592,7 @@ namespace umbraco
             //Trace out to profiling... doesn't actually profile, just for informational output.
             if (excludeProfiling == false)
             {
-                using (ProfilerResolver.Current.Profiler.Step(string.Format("Warning: {0}", message)))
+                using (ApplicationContext.Current.ProfilingLogger.TraceDuration<macro>(string.Format("Warning: {0}", message)))
                 {
                 }
             }
@@ -1590,7 +1606,7 @@ namespace umbraco
             //Trace out to profiling... doesn't actually profile, just for informational output.
             if (excludeProfiling == false)
             {
-                using (ProfilerResolver.Current.Profiler.Step(string.Format("{0}, Error: {1}", message, ex)))
+                using (ApplicationContext.Current.ProfilingLogger.TraceDuration<macro>(string.Format("{0}, Error: {1}", message, ex)))
                 {
                 }
             }
@@ -1657,6 +1673,12 @@ namespace umbraco
 
         public static string MacroContentByHttp(int PageID, Guid PageVersion, Hashtable attributes)
         {
+
+            if (SystemUtilities.GetCurrentTrustLevel() != AspNetHostingPermissionLevel.Unrestricted)
+            {
+                return "<span style='color: red'>Cannot render macro content in the rich text editor when the application is running in a Partial Trust environment</span>";
+            }
+            
             string tempAlias = (attributes["macroalias"] != null)
                                    ? attributes["macroalias"].ToString()
                                    : attributes["macroAlias"].ToString();
@@ -1828,9 +1850,22 @@ namespace umbraco
 
         private static INode GetCurrentNode()
         {
-            var id = Node.getCurrentNodeId();
-            var content = UmbracoContext.Current.ContentCache.GetById(id);
-            return CompatibilityHelper.ConvertToNode(content);
+            //Get the current content request
+
+            IPublishedContent content;
+            if (UmbracoContext.Current.IsFrontEndUmbracoRequest)
+            {
+                content = UmbracoContext.Current.PublishedContentRequest != null
+                    ? UmbracoContext.Current.PublishedContentRequest.PublishedContent
+                    : null;
+            }
+            else
+            {
+                var pageId = UmbracoContext.Current.PageId;
+                content = pageId.HasValue ? UmbracoContext.Current.ContentCache.GetById(pageId.Value) : null;
+            }
+                    
+            return content == null ? null : LegacyNodeHelper.ConvertToNode(content);
         }
 
         #region Events

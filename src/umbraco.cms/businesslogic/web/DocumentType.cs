@@ -6,12 +6,11 @@ using System.Linq;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
-using Umbraco.Core.Persistence.Caching;
 using umbraco.BusinessLogic;
+using Umbraco.Core.Services;
 using umbraco.DataLayer;
 using System.Collections.Generic;
 using Umbraco.Core;
-using PropertyType = umbraco.cms.businesslogic.propertytype.PropertyType;
 
 namespace umbraco.cms.businesslogic.web
 {
@@ -58,7 +57,12 @@ namespace umbraco.cms.businesslogic.web
         private int _defaultTemplate;
         private bool _hasChildrenInitialized = false;
         private bool _hasChildren;
-        private IContentType _contentType;
+
+        private IContentType ContentType
+        {
+            get { return base.ContentTypeItem as IContentType; }
+            set { base.ContentTypeItem = value; }
+        }
 
         #endregion
 
@@ -141,7 +145,7 @@ namespace umbraco.cms.businesslogic.web
         [Obsolete("Obsolete, Use Umbraco.Core.Models.ContentType and Umbraco.Core.Services.ContentTypeService.Save()", false)]
         public static DocumentType MakeNew(User u, string Text)
         {
-            var contentType = new Umbraco.Core.Models.ContentType(-1) { Name = Text, Alias = Text, CreatorId = u.Id, Thumbnail = "folder.png", Icon = "folder.gif" };
+            var contentType = new Umbraco.Core.Models.ContentType(-1) { Name = Text, Alias = Text, CreatorId = u.Id, Thumbnail = "icon-folder", Icon = "icon-folder" };
             ApplicationContext.Current.Services.ContentTypeService.Save(contentType, u.Id);
             var newDt = new DocumentType(contentType);
 
@@ -203,7 +207,7 @@ namespace umbraco.cms.businesslogic.web
                 if (_defaultTemplate != 0)
                 {
                     var template = ApplicationContext.Current.Services.FileService.GetTemplate(_defaultTemplate);
-                    _contentType.SetDefaultTemplate(template);
+                    ContentType.SetDefaultTemplate(template);
                 }
             }
         }
@@ -238,7 +242,7 @@ namespace umbraco.cms.businesslogic.web
 
                     _templateIds.Add(t.Id);
                 }
-                _contentType.AllowedTemplates = templates;
+                ContentType.AllowedTemplates = templates;
             }
         }
 
@@ -428,9 +432,9 @@ namespace umbraco.cms.businesslogic.web
             // remove from list of document type templates
             if (_templateIds.Contains(templateId))
             {
-                var template = _contentType.AllowedTemplates.FirstOrDefault(x => x.Id == templateId);
+                var template = ContentType.AllowedTemplates.FirstOrDefault(x => x.Id == templateId);
                 if (template != null)
-                    _contentType.RemoveTemplate(template);
+                    ContentType.RemoveTemplate(template);
 
                 _templateIds.Remove(templateId);
             }
@@ -454,7 +458,7 @@ namespace umbraco.cms.businesslogic.web
                     throw new ArgumentException("Can't delete a Document Type used as a Master Content Type. Please remove all references first!");
                 }
                 
-                ApplicationContext.Current.Services.ContentTypeService.Delete(_contentType);
+                ApplicationContext.Current.Services.ContentTypeService.Delete(ContentType);
 
                 clearTemplates();
 
@@ -464,93 +468,18 @@ namespace umbraco.cms.businesslogic.web
 
         public void clearTemplates()
         {
-            _contentType.AllowedTemplates = new List<ITemplate>();
+            ContentType.AllowedTemplates = new List<ITemplate>();
             _templateIds.Clear();
         }
 
         public XmlElement ToXml(XmlDocument xd)
         {
-            XmlElement doc = xd.CreateElement("DocumentType");
+            var exporter = new EntityXmlSerializer();
+            var xml = exporter.Serialize(ApplicationContext.Current.Services.DataTypeService, ContentType);
 
-            // info section
-            XmlElement info = xd.CreateElement("Info");
-            doc.AppendChild(info);
-            info.AppendChild(XmlHelper.AddTextNode(xd, "Name", GetRawText()));
-            info.AppendChild(XmlHelper.AddTextNode(xd, "Alias", Alias));
-            info.AppendChild(XmlHelper.AddTextNode(xd, "Icon", IconUrl));
-            info.AppendChild(XmlHelper.AddTextNode(xd, "Thumbnail", Thumbnail));
-            info.AppendChild(XmlHelper.AddTextNode(xd, "Description", GetRawDescription()));
-            info.AppendChild(XmlHelper.AddTextNode(xd, "AllowAtRoot", AllowAtRoot.ToString()));
-
-            //TODO: Add support for mixins!
-            if (this.MasterContentType > 0)
-            {
-                DocumentType dt = new DocumentType(this.MasterContentType);
-
-                if (dt != null)
-                    info.AppendChild(XmlHelper.AddTextNode(xd, "Master", dt.Alias));
-            }
-
-
-            // templates
-            XmlElement allowed = xd.CreateElement("AllowedTemplates");
-            foreach (template.Template t in allowedTemplates)
-                allowed.AppendChild(XmlHelper.AddTextNode(xd, "Template", t.Alias));
-            info.AppendChild(allowed);
-            if (DefaultTemplate != 0)
-                info.AppendChild(
-                    XmlHelper.AddTextNode(xd, "DefaultTemplate", new template.Template(DefaultTemplate).Alias));
-            else
-                info.AppendChild(XmlHelper.AddTextNode(xd, "DefaultTemplate", ""));
-
-            // structure
-            XmlElement structure = xd.CreateElement("Structure");
-            doc.AppendChild(structure);
-
-            foreach (int cc in AllowedChildContentTypeIDs.ToList())
-                structure.AppendChild(XmlHelper.AddTextNode(xd, "DocumentType", new DocumentType(cc).Alias));
-
-            // generic properties
-            XmlElement pts = xd.CreateElement("GenericProperties");
-            foreach (PropertyType pt in PropertyTypes)
-            {
-                //only add properties that aren't from master doctype
-                if (pt.ContentTypeId == this.Id)
-                {
-                    XmlElement ptx = xd.CreateElement("GenericProperty");
-                    ptx.AppendChild(XmlHelper.AddTextNode(xd, "Name", pt.GetRawName()));
-                    ptx.AppendChild(XmlHelper.AddTextNode(xd, "Alias", pt.Alias));
-                    ptx.AppendChild(XmlHelper.AddTextNode(xd, "Type", pt.DataTypeDefinition.DataType.Id.ToString()));
-
-                    //Datatype definition guid was added in v4 to enable datatype imports
-                    ptx.AppendChild(XmlHelper.AddTextNode(xd, "Definition", pt.DataTypeDefinition.UniqueId.ToString()));
-
-                    ptx.AppendChild(XmlHelper.AddTextNode(xd, "Tab", Tab.GetRawCaptionById(pt.TabId)));
-                    ptx.AppendChild(XmlHelper.AddTextNode(xd, "Mandatory", pt.Mandatory.ToString()));
-                    ptx.AppendChild(XmlHelper.AddTextNode(xd, "Validation", pt.ValidationRegExp));
-                    ptx.AppendChild(XmlHelper.AddCDataNode(xd, "Description", pt.GetRawDescription()));
-                    pts.AppendChild(ptx);
-                }
-            }
-            doc.AppendChild(pts);
-
-            // tabs
-            var tabs = xd.CreateElement("Tabs");
-
-            foreach (var propertyTypeGroup in PropertyTypeGroups)
-            {
-                //only add tabs that aren't from a master doctype
-                if (propertyTypeGroup.ContentTypeId == this.Id)
-                {
-                    var tabx = xd.CreateElement("Tab");
-                    tabx.AppendChild(XmlHelper.AddTextNode(xd, "Id", propertyTypeGroup.Id.ToString()));
-                    tabx.AppendChild(XmlHelper.AddTextNode(xd, "Caption", propertyTypeGroup.Name));
-                    tabx.AppendChild(XmlHelper.AddTextNode(xd, "SortOrder", propertyTypeGroup.SortOrder.ToString()));
-                    tabs.AppendChild(tabx);
-                }
-            }
-
-            doc.AppendChild(tabs);
+            //convert the Linq to Xml structure to the old .net xml structure
+            var xNode = xml.GetXmlNode();
+            var doc = (XmlElement)xd.ImportNode(xNode, true);
             return doc;
         }
 
@@ -558,7 +487,7 @@ namespace umbraco.cms.businesslogic.web
         public void RemoveDefaultTemplate()
         {
             _defaultTemplate = 0;
-            _contentType.SetDefaultTemplate(null);
+            ContentType.SetDefaultTemplate(null);
         }
 
         public bool HasTemplate()
@@ -577,18 +506,9 @@ namespace umbraco.cms.businesslogic.web
 
             if (!e.Cancel)
             {
-                if (MasterContentType != 0)
-                    _contentType.ParentId = MasterContentType;
-
-                foreach (var masterContentType in MasterContentTypes)
-                {
-                    var contentType = ApplicationContext.Current.Services.ContentTypeService.GetContentType(masterContentType);
-                    _contentType.AddContentType(contentType);
-                }
-
                 var current = User.GetCurrent();
                 int userId = current == null ? 0 : current.Id;
-                ApplicationContext.Current.Services.ContentTypeService.Save(_contentType, userId);
+                ApplicationContext.Current.Services.ContentTypeService.Save(ContentType, userId);
 
                 base.Save();
                 FireAfterSave(e);
@@ -626,17 +546,17 @@ namespace umbraco.cms.businesslogic.web
         #region Private Methods
         private void SetupNode(IContentType contentType)
         {
-            _contentType = contentType;
-            foreach (var template in _contentType.AllowedTemplates.Where(t => t != null))
+            ContentType = contentType;
+            foreach (var template in ContentType.AllowedTemplates.Where(t => t != null))
             {
                 _templateIds.Add(template.Id);
             }
 
-            if (_contentType.DefaultTemplate != null)
-                _defaultTemplate = _contentType.DefaultTemplate.Id;
+            if (ContentType.DefaultTemplate != null)
+                _defaultTemplate = ContentType.DefaultTemplate.Id;
 
-            base.PopulateContentTypeFromContentTypeBase(_contentType);
-            base.PopulateCMSNodeFromUmbracoEntity(_contentType, _objectType);
+            base.PopulateContentTypeFromContentTypeBase(ContentType);
+            base.PopulateCMSNodeFromUmbracoEntity(ContentType, _objectType);
         }
         #endregion
 
@@ -680,9 +600,9 @@ namespace umbraco.cms.businesslogic.web
         {
             if (AfterSave != null)
             {
-                var updated = this._contentType == null
+                var updated = this.ContentType == null
                                   ? new DocumentType(this.Id)
-                                  : new DocumentType(this._contentType);
+                                  : new DocumentType(this.ContentType);
                 AfterSave(updated, e);
             }
         }

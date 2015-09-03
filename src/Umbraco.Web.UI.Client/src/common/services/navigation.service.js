@@ -17,20 +17,14 @@
  */
 function navigationService($rootScope, $routeParams, $log, $location, $q, $timeout, $injector, dialogService, umbModelMapper, treeService, notificationsService, historyService, appState, angularHelper) {
 
-    var minScreenSize = 1100;
+    
     //used to track the current dialog object
     var currentDialog = null;
-    //tracks the screen size as a tablet
-    var isTablet = false;
+    
     //the main tree event handler, which gets assigned via the setupTreeEvents method
     var mainTreeEventHandler = null;
     //tracks the user profile dialog
     var userDialog = null;
-
-    function setTreeMode() {
-        isTablet = ($(window).width() <= minScreenSize);
-        appState.setGlobalState("showNavigation", !isTablet);
-    }
 
     function setMode(mode) {
         switch (mode) {
@@ -80,7 +74,7 @@ function navigationService($rootScope, $routeParams, $log, $location, $q, $timeo
             appState.setGlobalState("stickyNavigation", false);
             appState.setGlobalState("showTray", false);
 
-            if (isTablet) {
+            if (appState.getGlobalState("isTablet") === true) {
                 appState.setGlobalState("showNavigation", false);
             }
 
@@ -93,8 +87,6 @@ function navigationService($rootScope, $routeParams, $log, $location, $q, $timeo
         /** initializes the navigation service */
         init: function() {
 
-            setTreeMode();
-            
             //keep track of the current section - initially this will always be undefined so 
             // no point in setting it now until it changes.
             $rootScope.$watch(function () {
@@ -103,10 +95,7 @@ function navigationService($rootScope, $routeParams, $log, $location, $q, $timeo
                 appState.setSectionState("currentSection", newVal);
             });
 
-            //TODO: This does not belong here - would be much better off in a directive
-            $(window).bind("resize", function() {
-                setTreeMode();
-            });
+            
         },
 
         /**
@@ -353,7 +342,7 @@ function navigationService($rootScope, $routeParams, $log, $location, $q, $timeo
          */
         hideTree: function() {
 
-            if (isTablet && !appState.getGlobalState("stickyNavigation")) {
+            if (appState.getGlobalState("isTablet") === true && !appState.getGlobalState("stickyNavigation")) {
                 //reset it to whatever is in the url
                 appState.setSectionState("currentSection", $routeParams.section);
                 setMode("default-hidesectiontree");
@@ -400,7 +389,6 @@ function navigationService($rootScope, $routeParams, $log, $location, $q, $timeo
                             }
 
                             var dialog = self.showDialog({
-                                scope: args.scope,
                                 node: args.node,
                                 action: found,
                                 section: appState.getSectionState("currentSection")
@@ -514,23 +502,26 @@ function navigationService($rootScope, $routeParams, $log, $location, $q, $timeo
          * Opens the user dialog, next to the sections navigation
          * template is located in views/common/dialogs/user.html
          */
-        showUserDialog: function() {
+        showUserDialog: function () {
+            // hide tray and close help dialog
+            if (service.helpDialog) {
+                service.helpDialog.close();
+            }
+            service.hideTray();
 
-            if(userDialog){
-                userDialog.close();
-                userDialog = null;
+            if (service.userDialog) {
+                service.userDialog.close();
+                service.userDialog = undefined;
             }
 
-            userDialog = dialogService.open(
-                {
-                    template: "views/common/dialogs/user.html",
-                    modalClass: "umb-modal-left",
-                    show: true
-                });
-        
-            
+            service.userDialog = dialogService.open(
+            {
+                template: "views/common/dialogs/user.html",
+                modalClass: "umb-modal-left",
+                show: true
+            });
 
-            return userDialog;
+            return service.userDialog;
         },
 
         /**
@@ -542,7 +533,13 @@ function navigationService($rootScope, $routeParams, $log, $location, $q, $timeo
          * Opens the user dialog, next to the sections navigation
          * template is located in views/common/dialogs/user.html
          */
-        showHelpDialog: function() {
+        showHelpDialog: function () {
+            // hide tray and close user dialog
+            service.hideTray();
+            if (service.userDialog) {
+                service.userDialog.close();
+            }
+
             if(service.helpDialog){
                 service.helpDialog.close();
                 service.helpDialog = undefined;
@@ -569,12 +566,11 @@ function navigationService($rootScope, $routeParams, $log, $location, $q, $timeo
          * into #dialog div.umb-panel-body
          * the path to the dialog view is determined by: 
          * "views/" + current tree + "/" + action alias + ".html"
-         * The dialog controller will get passed a scope object that is created here. This scope
-         * object may be injected as part of the args object, if one is not found then a new scope
-         * is created. Regardless of whether a scope is created or re-used, a few properties and methods 
-         * will be added to it so that they can be used in any dialog controller:
+         * The dialog controller will get passed a scope object that is created here with the properties:
          *  scope.currentNode = the selected tree node
          *  scope.currentAction = the selected menu item
+         *  so that the dialog controllers can use these properties
+         * 
          * @param {Object} args arguments passed to the function
          * @param {Scope} args.scope current scope passed to the dialog
          * @param {Object} args.action the clicked action containing `name` and `alias`
@@ -598,8 +594,11 @@ function navigationService($rootScope, $routeParams, $log, $location, $q, $timeo
 
             setMode("dialog");
 
-            //set up the scope object and assign properties
-            var dialogScope = args.scope || $rootScope.$new();
+            //NOTE: Set up the scope object and assign properties, this is legacy functionality but we have to live with it now.
+            // we should be passing in currentNode and currentAction using 'dialogData' for the dialog, not attaching it to a scope.
+            // This scope instance will be destroyed by the dialog so it cannot be a scope that exists outside of the dialog.
+            // If a scope instance has been passed in, we'll have to create a child scope of it, otherwise a new root scope.
+            var dialogScope = args.scope ? args.scope.$new() : $rootScope.$new();
             dialogScope.currentNode = args.node;
             dialogScope.currentAction = args.action;
 
@@ -657,14 +656,19 @@ function navigationService($rootScope, $routeParams, $log, $location, $q, $timeo
             var dialog = dialogService.open(
                 {
                     container: $("#dialog div.umb-modalcolumn-body"),
+                    //The ONLY reason we're passing in scope to the dialogService (which is legacy functionality) is 
+                    // for backwards compatibility since many dialogs require $scope.currentNode or $scope.currentAction
+                    // to exist
                     scope: dialogScope,
-                    currentNode: args.node,
-                    currentAction: args.action,
                     inline: true,
                     show: true,
                     iframe: iframe,
                     modalClass: "umb-dialog",
-                    template: templateUrl
+                    template: templateUrl,
+
+                    //These will show up on the dialog controller's $scope under dialogOptions
+                    currentNode: args.node,
+                    currentAction: args.action,
                 });
 
             //save the currently assigned dialog so it can be removed before a new one is created

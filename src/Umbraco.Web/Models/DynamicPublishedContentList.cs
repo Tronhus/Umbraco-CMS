@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Dynamic;
 using Umbraco.Core;
+using Umbraco.Core.Cache;
 using Umbraco.Core.Dynamics;
 using System.Collections;
 using System.Reflection;
@@ -15,7 +16,7 @@ namespace Umbraco.Web.Models
     /// <summary>
     /// Represents a collection of DynamicPublishedContent items.
     /// </summary>
-    public class DynamicPublishedContentList : DynamicObject, IEnumerable<DynamicPublishedContent>, IEnumerable<IPublishedContent>
+    public class DynamicPublishedContentList : DynamicObject, IEnumerable<DynamicPublishedContent>
     {
         private readonly List<IPublishedContent> _content;
         private readonly PublishedContentSet<IPublishedContent> _contentSet;
@@ -284,8 +285,10 @@ namespace Umbraco.Web.Models
                 return true;
             }
 
+            var runtimeCache = ApplicationContext.Current != null ? ApplicationContext.Current.ApplicationCache.RuntimeCache : new NullCacheProvider();
+
 			//ok, now lets try to match by member, property, extensino method
-			var attempt = DynamicInstanceHelper.TryInvokeMember(this, binder, args, new[]
+            var attempt = DynamicInstanceHelper.TryInvokeMember(runtimeCache, this, binder, args, new[]
 				{
 					typeof (IEnumerable<DynamicPublishedContent>),
 					typeof (DynamicPublishedContentList)
@@ -573,11 +576,6 @@ namespace Umbraco.Web.Models
         #endregion
 
         #region Enumerate inner IPublishedContent items
-
-        IEnumerator<IPublishedContent> IEnumerable<IPublishedContent>.GetEnumerator()
-        {
-            return GetEnumerator();
-        }
 
         public IEnumerator<DynamicPublishedContent> GetEnumerator()
     	{

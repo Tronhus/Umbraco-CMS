@@ -14,13 +14,12 @@ namespace Umbraco.Core.Models
     [DataContract(IsReference = true)]
     public class Member : ContentBase, IMember
     {
-        private readonly IMemberType _contentType;
+        private IMemberType _contentType;
         private readonly string _contentTypeAlias;
         private string _username;
         private string _email;
         private string _rawPasswordValue;
         private object _providerUserKey;
-        private Type _userTypeKey;
 
         /// <summary>
         /// Constructor for creating an empty Member object
@@ -114,7 +113,6 @@ namespace Umbraco.Core.Models
         private static readonly PropertyInfo EmailSelector = ExpressionHelper.GetPropertyInfo<Member, string>(x => x.Email);
         private static readonly PropertyInfo PasswordSelector = ExpressionHelper.GetPropertyInfo<Member, string>(x => x.RawPasswordValue);
         private static readonly PropertyInfo ProviderUserKeySelector = ExpressionHelper.GetPropertyInfo<Member, object>(x => x.ProviderUserKey);
-        private static readonly PropertyInfo UserTypeKeySelector = ExpressionHelper.GetPropertyInfo<Member, Type>(x => x.ProviderUserKeyType);
 
         /// <summary>
         /// Gets or sets the Username
@@ -153,7 +151,7 @@ namespace Umbraco.Core.Models
         /// <summary>
         /// Gets or sets the raw password value
         /// </summary>
-        [DataMember]
+        [IgnoreDataMember]
         public string RawPasswordValue
         {
             get { return _rawPasswordValue; }
@@ -184,7 +182,7 @@ namespace Umbraco.Core.Models
         /// Alias: umbracoMemberPasswordRetrievalQuestion
         /// Part of the standard properties collection.
         /// </remarks>
-        [IgnoreDataMember]
+        [DataMember]
         public string PasswordQuestion
         {
             get
@@ -244,7 +242,7 @@ namespace Umbraco.Core.Models
         /// Alias: umbracoMemberComments
         /// Part of the standard properties collection.
         /// </remarks>
-        [IgnoreDataMember]
+        [DataMember]
         public string Comments
         {
             get
@@ -273,7 +271,7 @@ namespace Umbraco.Core.Models
         /// Alias: umbracoMemberApproved
         /// Part of the standard properties collection.
         /// </remarks>
-        [IgnoreDataMember]
+        [DataMember]
         public bool IsApproved
         {
             get
@@ -308,7 +306,7 @@ namespace Umbraco.Core.Models
         /// Alias: umbracoMemberLockedOut
         /// Part of the standard properties collection.
         /// </remarks>
-        [IgnoreDataMember]
+        [DataMember]
         public bool IsLockedOut
         {
             get
@@ -341,7 +339,7 @@ namespace Umbraco.Core.Models
         /// Alias: umbracoMemberLastLogin
         /// Part of the standard properties collection.
         /// </remarks>
-        [IgnoreDataMember]
+        [DataMember]
         public DateTime LastLoginDate
         {
             get
@@ -374,7 +372,7 @@ namespace Umbraco.Core.Models
         /// Alias: umbracoMemberLastPasswordChangeDate
         /// Part of the standard properties collection.
         /// </remarks>
-        [IgnoreDataMember]
+        [DataMember]
         public DateTime LastPasswordChangeDate
         {
             get
@@ -407,7 +405,7 @@ namespace Umbraco.Core.Models
         /// Alias: umbracoMemberLastLockoutDate
         /// Part of the standard properties collection.
         /// </remarks>
-        [IgnoreDataMember]
+        [DataMember]
         public DateTime LastLockoutDate
         {
             get
@@ -441,7 +439,7 @@ namespace Umbraco.Core.Models
         /// Alias: umbracoMemberFailedPasswordAttempts
         /// Part of the standard properties collection.
         /// </remarks>
-        [IgnoreDataMember]
+        [DataMember]
         public int FailedPasswordAttempts
         {
             get
@@ -502,38 +500,7 @@ namespace Umbraco.Core.Models
             }
         }
 
-        /// <summary>
-        /// Gets or sets the type of the provider user key.
-        /// </summary>
-        /// <value>
-        /// The type of the provider user key.
-        /// </value>
-        [IgnoreDataMember]
-        internal Type ProviderUserKeyType
-        {
-            get
-            {
-                return _userTypeKey;
-            }
-            private set
-            {
-                SetPropertyValueAndDetectChanges(o =>
-                {
-                    _userTypeKey = value;
-                    return _userTypeKey;
-                }, _userTypeKey, UserTypeKeySelector);
-            }
-        }
-
-        /// <summary>
-        /// Sets the type of the provider user key.
-        /// </summary>
-        /// <param name="type">The type.</param>
-        internal void SetProviderUserKeyType(Type type)
-        {
-            ProviderUserKeyType = type;
-        }
-
+      
         /// <summary>
         /// Method to call when Entity is being saved
         /// </summary>
@@ -543,7 +510,10 @@ namespace Umbraco.Core.Models
             base.AddingEntity();
 
             if (Key == Guid.Empty)
+            {
                 Key = Guid.NewGuid();
+                ProviderUserKey = Key;
+            }
         }
 
         /// <summary>
@@ -563,11 +533,17 @@ namespace Umbraco.Core.Models
         /* Internal experiment - only used for mapping queries. 
          * Adding these to have first level properties instead of the Properties collection.
          */
+        [IgnoreDataMember]
         internal string LongStringPropertyValue { get; set; }
+        [IgnoreDataMember]
         internal string ShortStringPropertyValue { get; set; }
-        internal int IntegerropertyValue { get; set; }
+        [IgnoreDataMember]
+        internal int IntegerPropertyValue { get; set; }
+        [IgnoreDataMember]
         internal bool BoolPropertyValue { get; set; }
+        [IgnoreDataMember]
         internal DateTime DateTimePropertyValue { get; set; }
+        [IgnoreDataMember]
         internal string PropertyTypeAlias { get; set; }
 
         private Attempt<T> WarnIfPropertyTypeNotFoundOnGet<T>(string propertyAlias, string propertyName, T defaultVal)
@@ -636,6 +612,22 @@ namespace Umbraco.Core.Models
             }
 
             return true;
+        }
+
+        public override object DeepClone()
+        {
+            var clone = (Member)base.DeepClone();
+            //turn off change tracking
+            clone.DisableChangeTracking();
+            //need to manually clone this since it's not settable
+            clone._contentType = (IMemberType)ContentType.DeepClone();
+            //this shouldn't really be needed since we're not tracking
+            clone.ResetDirtyProperties(false);
+            //re-enable tracking
+            clone.EnableChangeTracking();
+
+            return clone;
+
         }
     }
 }

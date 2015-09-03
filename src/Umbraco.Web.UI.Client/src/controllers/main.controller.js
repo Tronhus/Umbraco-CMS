@@ -8,20 +8,14 @@
  * The main application controller
  * 
  */
-function MainController($scope, $rootScope, $location, $routeParams, $timeout, $http, $log, appState, treeService, notificationsService, userService, navigationService, historyService, updateChecker, assetsService, eventsService, umbRequestHelper) {
+function MainController($scope, $rootScope, $location, $routeParams, $timeout, $http, $log, appState, treeService, notificationsService, userService, navigationService, historyService, updateChecker, assetsService, eventsService, umbRequestHelper, tmhDynamicLocale) {
 
     //the null is important because we do an explicit bool check on this in the view
     //the avatar is by default the umbraco logo    
     $scope.authenticated = null;
     $scope.avatar = "assets/img/application/logo.png";
     $scope.touchDevice = appState.getGlobalState("touchDevice");
-    //subscribes to notifications in the notification service
-    $scope.notifications = notificationsService.current;
-    $scope.$watch('notificationsService.current', function (newVal, oldVal, scope) {
-        if (newVal) {
-            $scope.notifications = newVal;
-        }
-    });
+    
 
     $scope.removeNotification = function (index) {
         notificationsService.remove(index);
@@ -48,14 +42,16 @@ function MainController($scope, $rootScope, $location, $routeParams, $timeout, $
         eventsService.emit("app.closeDialogs", event);
     };
 
+    var evts = [];
+
     //when a user logs out or timesout
-    eventsService.on("app.notAuthenticated", function() {
+    evts.push(eventsService.on("app.notAuthenticated", function() {
         $scope.authenticated = null;
         $scope.user = null;
-    });
+    }));
     
     //when the app is read/user is logged in, setup the data
-    eventsService.on("app.ready", function (evt, data) {
+    evts.push(eventsService.on("app.ready", function (evt, data) {
         
         $scope.authenticated = data.authenticated;
         $scope.user = data.user;
@@ -73,7 +69,7 @@ function MainController($scope, $rootScope, $location, $routeParams, $timeout, $
                     notificationsService.add(notification);
                 }
             }
-        });
+        })
 
         //if the user has changed we need to redirect to the root so they don't try to continue editing the
         //last item in the URL (NOTE: the user id can equal zero, so we cannot just do !data.lastUserId since that will resolve to true)
@@ -83,6 +79,11 @@ function MainController($scope, $rootScope, $location, $routeParams, $timeout, $
             treeService.clearCache();
         }
 
+        //Load locale file
+        if ($scope.user.locale) {
+            tmhDynamicLocale.set($scope.user.locale);
+        }
+
         if($scope.user.emailHash){
             $timeout(function () {                
                 //yes this is wrong.. 
@@ -90,7 +91,7 @@ function MainController($scope, $rootScope, $location, $routeParams, $timeout, $
                     $timeout(function () {
                         //this can be null if they time out
                         if ($scope.user && $scope.user.emailHash) {
-                            $scope.avatar = "http://www.gravatar.com/avatar/" + $scope.user.emailHash + ".jpg?s=64&d=mm";
+                            $scope.avatar = "//www.gravatar.com/avatar/" + $scope.user.emailHash + ".jpg?s=64&d=mm";
                         }
                     });
                     $("#avatar-img").fadeTo(1000, 1);
@@ -99,10 +100,21 @@ function MainController($scope, $rootScope, $location, $routeParams, $timeout, $
               }, 3000);  
         }
 
+    }));
+
+    //ensure to unregister from all events!
+    $scope.$on('$destroy', function () {
+        for (var e in evts) {
+            eventsService.unsubscribe(evts[e]);
+        }
     });
 
 }
 
 
 //register it
-angular.module('umbraco').controller("Umbraco.MainController", MainController);
+angular.module('umbraco').controller("Umbraco.MainController", MainController).
+        config(function (tmhDynamicLocaleProvider) {
+            //Set url for locale files
+            tmhDynamicLocaleProvider.localeLocationPattern('lib/angular/1.1.5/i18n/angular-locale_{{locale}}.js');
+        });

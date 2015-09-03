@@ -9,6 +9,8 @@ using System.Linq;
 using System.Web;
 using System.Xml;
 using System.Xml.Linq;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.IO;
@@ -41,6 +43,60 @@ namespace Umbraco.Core.Models
         }
 
         /// <summary>
+        /// Determines if the item should be persisted at all
+        /// </summary>
+        /// <param name="entity"></param>
+        /// <returns></returns>
+        /// <remarks>
+        /// In one particular case, a content item shouldn't be persisted:
+        /// * The item exists and is published
+        /// * A call to ContentService.Save is made
+        /// * The item has not been modified whatsoever apart from changing it's published status from published to saved
+        /// 
+        /// In this case, there is no reason to make any database changes at all
+        /// </remarks>
+        internal static bool RequiresSaving(this IContent entity)
+        {
+            var publishedState = ((Content)entity).PublishedState;
+            return RequiresSaving(entity, publishedState);
+        }
+
+        /// <summary>
+        /// Determines if the item should be persisted at all
+        /// </summary>
+        /// <param name="entity"></param>
+        /// <param name="publishedState"></param>
+        /// <returns></returns>
+        /// <remarks>
+        /// In one particular case, a content item shouldn't be persisted:
+        /// * The item exists and is published
+        /// * A call to ContentService.Save is made
+        /// * The item has not been modified whatsoever apart from changing it's published status from published to saved
+        /// 
+        /// In this case, there is no reason to make any database changes at all
+        /// </remarks>
+        internal static bool RequiresSaving(this IContent entity, PublishedState publishedState)
+        {
+            var publishedChanged = entity.IsPropertyDirty("Published") && publishedState != PublishedState.Unpublished;
+            //check if any user prop has changed
+            var propertyValueChanged = entity.IsAnyUserPropertyDirty();
+            
+            //We need to know if any other property apart from Published was changed here
+            //don't create a new version if the published state has changed to 'Save' but no data has actually been changed
+            if (publishedChanged && entity.Published == false && propertyValueChanged == false)
+            {
+                //at this point we need to check if any non property value has changed that wasn't the published state
+                var changedProps = ((TracksChangesEntityBase)entity).GetDirtyProperties();
+                if (changedProps.Any(x => x != "Published") == false)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Determines if a new version should be created
         /// </summary>
         /// <param name="entity"></param>
@@ -58,6 +114,25 @@ namespace Umbraco.Core.Models
         }
 
         /// <summary>
+        /// Returns a list of all dirty user defined properties
+        /// </summary>
+        /// <returns></returns>
+        public static IEnumerable<string> GetDirtyUserProperties(this IContentBase entity)
+        {
+            return entity.Properties.Where(x => x.IsDirty()).Select(x => x.Alias);
+        }
+
+        public static bool IsAnyUserPropertyDirty(this IContentBase entity)
+        {
+            return entity.Properties.Any(x => x.IsDirty());
+        }
+
+        public static bool WasAnyUserPropertyDirty(this IContentBase entity)
+        {
+            return entity.Properties.Any(x => x.WasDirty());
+        }
+
+        /// <summary>
         /// Determines if a new version should be created
         /// </summary>
         /// <param name="entity"></param>
@@ -71,12 +146,13 @@ namespace Umbraco.Core.Models
         /// </remarks>
         internal static bool ShouldCreateNewVersion(this IContent entity, PublishedState publishedState)
         {
-            var dirtyEntity = (ICanBeDirty)entity;
-
             //check if the published state has changed or the language
-            var contentChanged =
-                (dirtyEntity.IsPropertyDirty("Published") && publishedState != PublishedState.Unpublished)
-                || dirtyEntity.IsPropertyDirty("Language");
+            var publishedChanged = entity.IsPropertyDirty("Published") && publishedState != PublishedState.Unpublished;
+            var langChanged = entity.IsPropertyDirty("Language");
+            var contentChanged = publishedChanged || langChanged;
+
+            //check if any user prop has changed
+            var propertyValueChanged = entity.IsAnyUserPropertyDirty();
 
             //return true if published or language has changed
             if (contentChanged)
@@ -84,8 +160,6 @@ namespace Umbraco.Core.Models
                 return true;
             }
 
-            //check if any user prop has changed
-            var propertyValueChanged = ((Content)entity).IsAnyUserPropertyDirty();
             //check if any content prop has changed
             var contentDataChanged = ((Content)entity).IsEntityDirty();
 
@@ -132,7 +206,7 @@ namespace Umbraco.Core.Models
 
             //If Published state has changed then previous versions should have their publish state reset.
             //If state has been changed to unpublished the previous versions publish state should also be reset.
-            if (((ICanBeDirty)entity).IsPropertyDirty("Published") && (entity.Published || publishedState == PublishedState.Unpublished))
+            if (entity.IsPropertyDirty("Published") && (entity.Published || publishedState == PublishedState.Unpublished))
             {
                 return true;
             }
@@ -237,6 +311,28 @@ namespace Umbraco.Core.Models
         {
             return content.Path.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
                           .Contains(recycleBinId.ToInvariantString());
+        }
+        
+        /// <summary>
+        /// Removes characters that are not valide XML characters from all entity properties 
+        /// of type string. See: http://stackoverflow.com/a/961504/5018
+        /// </summary>
+        /// <returns></returns>
+        /// <remarks>
+        /// If this is not done then the xml cache can get corrupt and it will throw YSODs upon reading it.
+        /// </remarks>
+        /// <param name="entity"></param>
+        public static void SanitizeEntityPropertiesForXmlStorage(this IContentBase entity)
+        {
+            entity.Name = entity.Name.ToValidXmlString();
+            foreach (var property in entity.Properties)
+            {
+                if (property.Value is string)
+                {
+                    var value = (string)property.Value;
+                    property.Value = value.ToValidXmlString();
+                }
+            }
         }
 
         /// <summary>
@@ -502,29 +598,58 @@ namespace Umbraco.Core.Models
         #endregion
 
         #region User/Profile methods
+        
         /// <summary>
         /// Gets the <see cref="IProfile"/> for the Creator of this media item.
         /// </summary>
+        [Obsolete("Use the overload that declares the IUserService to use")]
         public static IProfile GetCreatorProfile(this IMedia media)
         {
             return ApplicationContext.Current.Services.UserService.GetProfileById(media.CreatorId);
         }
 
         /// <summary>
+        /// Gets the <see cref="IProfile"/> for the Creator of this media item.
+        /// </summary>
+        public static IProfile GetCreatorProfile(this IMedia media, IUserService userService)
+        {
+            return userService.GetProfileById(media.CreatorId);
+        }
+
+        /// <summary>
         /// Gets the <see cref="IProfile"/> for the Creator of this content item.
         /// </summary>
+        [Obsolete("Use the overload that declares the IUserService to use")]
         public static IProfile GetCreatorProfile(this IContentBase content)
         {
             return ApplicationContext.Current.Services.UserService.GetProfileById(content.CreatorId);
         }
 
         /// <summary>
+        /// Gets the <see cref="IProfile"/> for the Creator of this content item.
+        /// </summary>
+        public static IProfile GetCreatorProfile(this IContentBase content, IUserService userService)
+        {
+            return userService.GetProfileById(content.CreatorId);
+        }
+
+        /// <summary>
         /// Gets the <see cref="IProfile"/> for the Writer of this content.
         /// </summary>
+        [Obsolete("Use the overload that declares the IUserService to use")]
         public static IProfile GetWriterProfile(this IContent content)
         {
             return ApplicationContext.Current.Services.UserService.GetProfileById(content.WriterId);
         }
+
+        /// <summary>
+        /// Gets the <see cref="IProfile"/> for the Writer of this content.
+        /// </summary>
+        public static IProfile GetWriterProfile(this IContent content, IUserService userService)
+        {
+            return userService.GetProfileById(content.WriterId);
+        }
+
         #endregion
 
         /// <summary>
@@ -532,14 +657,12 @@ namespace Umbraco.Core.Models
         /// </summary>
         /// <param name="content"></param>
         /// <returns>True if the content has any published versiom otherwise False</returns>
+        [Obsolete("Use the HasPublishedVersion property.", false)]
         public static bool HasPublishedVersion(this IContent content)
         {
-            if (content.HasIdentity == false)
-                return false;
-
-            return ApplicationContext.Current.Services.ContentService.HasPublishedVersion(content.Id);
+            return content.HasPublishedVersion;
         }
-        
+
         #region Tag methods
 
         ///// <summary>
@@ -568,11 +691,32 @@ namespace Umbraco.Core.Models
         /// <returns></returns>
         public static void SetTags(this IContentBase content, string propertyTypeAlias, IEnumerable<string> tags, bool replaceTags, string tagGroup = "default")
         {
+            content.SetTags(TagCacheStorageType.Csv, propertyTypeAlias, tags, replaceTags, tagGroup);
+        }
+
+        /// <summary>
+        /// Sets tags for the property - will add tags to the tags table and set the property value to be the comma delimited value of the tags.
+        /// </summary>
+        /// <param name="content">The content item to assign the tags to</param>
+        /// <param name="storageType">The tag storage type in cache (default is csv)</param>
+        /// <param name="propertyTypeAlias">The property alias to assign the tags to</param>
+        /// <param name="tags">The tags to assign</param>
+        /// <param name="replaceTags">True to replace the tags on the current property with the tags specified or false to merge them with the currently assigned ones</param>
+        /// <param name="tagGroup">The group/category to assign the tags, the default value is "default"</param>
+        /// <returns></returns>
+        public static void SetTags(this IContentBase content, TagCacheStorageType storageType, string propertyTypeAlias, IEnumerable<string> tags, bool replaceTags, string tagGroup = "default")
+        {
             var property = content.Properties[propertyTypeAlias];
             if (property == null)
             {
                 throw new IndexOutOfRangeException("No property exists with name " + propertyTypeAlias);
             }
+            property.SetTags(storageType, propertyTypeAlias, tags, replaceTags, tagGroup);
+        }
+
+        internal static void SetTags(this Property property, TagCacheStorageType storageType, string propertyTypeAlias, IEnumerable<string> tags, bool replaceTags, string tagGroup = "default")
+        {
+            if (property == null) throw new ArgumentNullException("property");
 
             var trimmedTags = tags.Select(x => x.Trim()).ToArray();
 
@@ -583,15 +727,39 @@ namespace Umbraco.Core.Models
             //ensure the property value is set to the same thing
             if (replaceTags)
             {
-                property.Value = string.Join(",", trimmedTags);
+                switch (storageType)
+                {
+                    case TagCacheStorageType.Csv:
+                        property.Value = string.Join(",", trimmedTags);
+                        break;
+                    case TagCacheStorageType.Json:
+                        //json array
+                        property.Value = JsonConvert.SerializeObject(trimmedTags);
+                        break;
+                }
+
             }
             else
             {
-                var currTags = property.Value.ToString().Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries)
+                switch (storageType)
+                {
+                    case TagCacheStorageType.Csv:
+                        var currTags = property.Value.ToString().Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
                                        .Select(x => x.Trim());
-                property.Value = string.Join(",", trimmedTags.Union(currTags));
+                        property.Value = string.Join(",", trimmedTags.Union(currTags));
+                        break;
+                    case TagCacheStorageType.Json:
+                        var currJson = JsonConvert.DeserializeObject<JArray>(property.Value.ToString());
+                        //need to append the new ones
+                        foreach (var tag in trimmedTags)
+                        {
+                            currJson.Add(tag);
+                        }
+                        //json array
+                        property.Value = JsonConvert.SerializeObject(currJson);
+                        break;
+                }
             }
-            
         }
 
         /// <summary>
@@ -625,14 +793,16 @@ namespace Umbraco.Core.Models
         #endregion
 
         #region XML methods
+
         /// <summary>
         /// Creates the full xml representation for the <see cref="IContent"/> object and all of it's descendants
         /// </summary>
         /// <param name="content"><see cref="IContent"/> to generate xml for</param>
+        /// <param name="packagingService"></param>
         /// <returns>Xml representation of the passed in <see cref="IContent"/></returns>
-        internal static XElement ToDeepXml(this IContent content)
+        internal static XElement ToDeepXml(this IContent content, IPackagingService packagingService)
         {
-            return ApplicationContext.Current.Services.PackagingService.Export(content, true, raiseEvents: false);
+            return packagingService.Export(content, true, raiseEvents: false);
         }
 
         /// <summary>
@@ -640,9 +810,21 @@ namespace Umbraco.Core.Models
         /// </summary>
         /// <param name="content"><see cref="IContent"/> to generate xml for</param>
         /// <returns>Xml representation of the passed in <see cref="IContent"/></returns>
+        [Obsolete("Use the overload that declares the IPackagingService to use")]
         public static XElement ToXml(this IContent content)
         {
             return ApplicationContext.Current.Services.PackagingService.Export(content, raiseEvents: false);
+        }
+
+        /// <summary>
+        /// Creates the xml representation for the <see cref="IContent"/> object
+        /// </summary>
+        /// <param name="content"><see cref="IContent"/> to generate xml for</param>
+        /// <param name="packagingService"></param>
+        /// <returns>Xml representation of the passed in <see cref="IContent"/></returns>
+        public static XElement ToXml(this IContent content, IPackagingService packagingService)
+        {
+            return packagingService.Export(content, raiseEvents: false);
         }
 
         /// <summary>
@@ -650,27 +832,41 @@ namespace Umbraco.Core.Models
         /// </summary>
         /// <param name="media"><see cref="IContent"/> to generate xml for</param>
         /// <returns>Xml representation of the passed in <see cref="IContent"/></returns>
+        [Obsolete("Use the overload that declares the IPackagingService to use")]
         public static XElement ToXml(this IMedia media)
         {
             return ApplicationContext.Current.Services.PackagingService.Export(media, raiseEvents: false);
         }
 
         /// <summary>
+        /// Creates the xml representation for the <see cref="IMedia"/> object
+        /// </summary>
+        /// <param name="media"><see cref="IContent"/> to generate xml for</param>
+        /// <param name="packagingService"></param>
+        /// <returns>Xml representation of the passed in <see cref="IContent"/></returns>
+        public static XElement ToXml(this IMedia media, IPackagingService packagingService)
+        {
+            return packagingService.Export(media, raiseEvents: false);
+        }
+
+        /// <summary>
         /// Creates the full xml representation for the <see cref="IMedia"/> object and all of it's descendants
         /// </summary>
         /// <param name="media"><see cref="IMedia"/> to generate xml for</param>
+        /// <param name="packagingService"></param>
         /// <returns>Xml representation of the passed in <see cref="IMedia"/></returns>
-        internal static XElement ToDeepXml(this IMedia media)
+        internal static XElement ToDeepXml(this IMedia media, IPackagingService packagingService)
         {
-            return ApplicationContext.Current.Services.PackagingService.Export(media, true, raiseEvents: false);
+            return packagingService.Export(media, true, raiseEvents: false);
         }
-       
+
         /// <summary>
         /// Creates the xml representation for the <see cref="IContent"/> object
         /// </summary>
         /// <param name="content"><see cref="IContent"/> to generate xml for</param>
         /// <param name="isPreview">Boolean indicating whether the xml should be generated for preview</param>
         /// <returns>Xml representation of the passed in <see cref="IContent"/></returns>
+        [Obsolete("Use the overload that declares the IPackagingService to use")]
         public static XElement ToXml(this IContent content, bool isPreview)
         {
             //TODO Do a proper implementation of this
@@ -679,18 +875,40 @@ namespace Umbraco.Core.Models
         }
 
         /// <summary>
+        /// Creates the xml representation for the <see cref="IContent"/> object
+        /// </summary>
+        /// <param name="content"><see cref="IContent"/> to generate xml for</param>
+        /// <param name="packagingService"></param>
+        /// <param name="isPreview">Boolean indicating whether the xml should be generated for preview</param>
+        /// <returns>Xml representation of the passed in <see cref="IContent"/></returns>
+        public static XElement ToXml(this IContent content, IPackagingService packagingService, bool isPreview)
+        {
+            //TODO Do a proper implementation of this
+            //If current IContent is published we should get latest unpublished version
+            return content.ToXml(packagingService);
+        }
+
+        /// <summary>
         /// Creates the xml representation for the <see cref="IMember"/> object
         /// </summary>
         /// <param name="member"><see cref="IMember"/> to generate xml for</param>
         /// <returns>Xml representation of the passed in <see cref="IContent"/></returns>
+        [Obsolete("Use the overload that declares the IPackagingService to use")]
         public static XElement ToXml(this IMember member)
         {
             return ((PackagingService)(ApplicationContext.Current.Services.PackagingService)).Export(member);
         }
-        
+
+        /// <summary>
+        /// Creates the xml representation for the <see cref="IMember"/> object
+        /// </summary>
+        /// <param name="member"><see cref="IMember"/> to generate xml for</param>
+        /// <param name="packagingService"></param>
+        /// <returns>Xml representation of the passed in <see cref="IContent"/></returns>
+        public static XElement ToXml(this IMember member, IPackagingService packagingService)
+        {
+            return ((PackagingService)(packagingService)).Export(member);
+        }
         #endregion
     }
-        
-
-
 }

@@ -16,16 +16,13 @@ namespace Umbraco.Web.PropertyEditors
         {
             _defaultPreVals = new Dictionary<string, object>
                 {
-                    {"format", "yyyy-MM-dd"},
+                    {"format", "YYYY-MM-DD"},
                     {"pickTime", false}
                 };
         }
 
         private IDictionary<string, object> _defaultPreVals;
 
-        /// <summary>
-        /// Overridden because we ONLY support Date (no time) format and we don't have pre-values in the db.
-        /// </summary>
         public override IDictionary<string, object> DefaultPreValues
         {
             get { return _defaultPreVals; }
@@ -59,6 +56,11 @@ namespace Umbraco.Web.PropertyEditors
                 return date.Result.Value.ToString("yyyy-MM-dd");                
             }
 
+        }
+
+        protected override PreValueEditor CreatePreValueEditor()
+        {
+            return new DatePreValueEditor();
         }
     }
 }

@@ -93,7 +93,7 @@
 							<label class="checkbox" for="integratedAuth">
 								<input type="checkbox" name="integratedAuth"
 								placeholder="umbraco-cms"
-								ng-model="installer.current.model.integratedAuth"  /> Use intergrated authentication</label>
+								ng-model="installer.current.model.integratedAuth"  /> Use integrated authentication</label>
 							</div>
 						</div>
 			  </div>
@@ -104,6 +104,8 @@
 				<div class="controls">
 					<input type="submit" ng-disabled="myForm.$invalid || checking"  
 						value="Continue" class="btn btn-success" />
+
+						<button class="btn" ng-click="restart()">Go back</button>
                     
 					    <span class="inline-help" ng-if="checking" ng-animate="'fade'">
 	                    	Validating your database connection...

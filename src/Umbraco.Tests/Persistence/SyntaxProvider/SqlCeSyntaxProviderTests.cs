@@ -18,7 +18,7 @@ namespace Umbraco.Tests.Persistence.SyntaxProvider
         [SetUp]
         public void SetUp()
         {
-            SqlSyntaxContext.SqlSyntaxProvider = SqlCeSyntax.Provider;
+            SqlSyntaxContext.SqlSyntaxProvider = new SqlCeSyntaxProvider();
         }
 
         [Test]
@@ -38,7 +38,11 @@ namespace Umbraco.Tests.Persistence.SyntaxProvider
 FROM [cmsContentXml]
 INNER JOIN [umbracoNode]
 ON [cmsContentXml].[nodeId] = [umbracoNode].[id]
-WHERE ([umbracoNode].[nodeObjectType] = 'b796f64c-1f99-4ffb-b886-4bf4bc011a9c')) x)".Replace(Environment.NewLine, " ").Replace("\n", " ").Replace("\r", " "), sql.Replace(Environment.NewLine, " ").Replace("\n", " ").Replace("\r", " "));
+WHERE ([umbracoNode].[nodeObjectType] = @0)) x)".Replace(Environment.NewLine, " ").Replace("\n", " ").Replace("\r", " "), 
+                                                sql.SQL.Replace(Environment.NewLine, " ").Replace("\n", " ").Replace("\r", " "));
+
+            Assert.AreEqual(1, sql.Arguments.Length);
+            Assert.AreEqual(mediaObjectType, sql.Arguments[0]);
         }
 
         [NUnit.Framework.Ignore("This doesn't actually test anything")]
@@ -69,7 +73,7 @@ WHERE ([umbracoNode].[nodeObjectType] = 'b796f64c-1f99-4ffb-b886-4bf4bc011a9c'))
         [Test]
         public void Format_SqlServer_NonClusteredIndexDefinition_AddsNonClusteredDirective()
         {
-            SqlSyntaxContext.SqlSyntaxProvider = SqlServerSyntax.Provider;
+            SqlSyntaxContext.SqlSyntaxProvider = new SqlServerSyntaxProvider();
 
             var indexDefinition = CreateIndexDefinition();
             indexDefinition.IndexType = IndexTypes.NonClustered;
@@ -81,7 +85,7 @@ WHERE ([umbracoNode].[nodeObjectType] = 'b796f64c-1f99-4ffb-b886-4bf4bc011a9c'))
         [Test]
         public void Format_SqlServer_NonClusteredIndexDefinition_UsingIsClusteredFalse_AddsClusteredDirective()
         {
-            SqlSyntaxContext.SqlSyntaxProvider = SqlServerSyntax.Provider;
+            SqlSyntaxContext.SqlSyntaxProvider = new SqlServerSyntaxProvider();
 
             var indexDefinition = CreateIndexDefinition();
             indexDefinition.IsClustered = false;
@@ -93,7 +97,7 @@ WHERE ([umbracoNode].[nodeObjectType] = 'b796f64c-1f99-4ffb-b886-4bf4bc011a9c'))
         [Test]
         public void CreateIndexBuilder_SqlServer_NonClustered_CreatesNonClusteredIndex()
         {
-            SqlSyntaxContext.SqlSyntaxProvider = SqlServerSyntax.Provider;
+            SqlSyntaxContext.SqlSyntaxProvider = new SqlServerSyntaxProvider();
             var createExpression = new CreateIndexExpression { Index = { Name = "IX_A" } };
             var builder = new CreateIndexBuilder(createExpression);
             builder.OnTable("TheTable").OnColumn("A").Ascending().WithOptions().NonClustered();
@@ -103,7 +107,7 @@ WHERE ([umbracoNode].[nodeObjectType] = 'b796f64c-1f99-4ffb-b886-4bf4bc011a9c'))
         [Test]
         public void CreateIndexBuilder_SqlServer_Unique_CreatesUniqueNonClusteredIndex()
         {
-            SqlSyntaxContext.SqlSyntaxProvider = SqlServerSyntax.Provider;
+            SqlSyntaxContext.SqlSyntaxProvider = new SqlServerSyntaxProvider();
             var createExpression = new CreateIndexExpression { Index = { Name = "IX_A" } };
             var builder = new CreateIndexBuilder(createExpression);
             builder.OnTable("TheTable").OnColumn("A").Ascending().WithOptions().Unique();
@@ -113,7 +117,7 @@ WHERE ([umbracoNode].[nodeObjectType] = 'b796f64c-1f99-4ffb-b886-4bf4bc011a9c'))
         [Test]
         public void CreateIndexBuilder_SqlServer_Clustered_CreatesClusteredIndex()
         {
-            SqlSyntaxContext.SqlSyntaxProvider = SqlServerSyntax.Provider;
+            SqlSyntaxContext.SqlSyntaxProvider = new SqlServerSyntaxProvider();
             var createExpression = new CreateIndexExpression { Index = { Name = "IX_A" } };
             var builder = new CreateIndexBuilder(createExpression);
             builder.OnTable("TheTable").OnColumn("A").Ascending().WithOptions().Clustered();

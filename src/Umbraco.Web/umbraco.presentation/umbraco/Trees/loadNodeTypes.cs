@@ -46,6 +46,8 @@ namespace umbraco
             actions.Add(ActionExport.Instance);
             actions.Add(ContextMenuSeperator.Instance);
             actions.Add(ActionDelete.Instance);
+            actions.Add(ContextMenuSeperator.Instance);
+            actions.Add(ActionRefresh.Instance);
         }
 
         public override void RenderJS(ref StringBuilder Javascript)
@@ -74,11 +76,7 @@ function openNodeType(id) {
                 xNode.OpenIcon = "icon-item-arrangement";
                 xNode.Source = GetTreeServiceUrl(docType.Id);
                 xNode.HasChildren = hasChildren;
-                if (hasChildren)
-                {
-                    xNode.Icon = "icon-item-arrangement";
-                    xNode.OpenIcon = "icon-item-arrangement";
-                }
+                
 
                 OnBeforeNodeRender(ref tree, ref xNode, EventArgs.Empty);
                 if (xNode != null)

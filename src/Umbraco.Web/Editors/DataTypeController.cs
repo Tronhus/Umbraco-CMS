@@ -30,14 +30,25 @@ namespace Umbraco.Web.Editors
     /// access to ALL of the methods on this controller will need access to the developer application.
     /// </remarks>
     [PluginController("UmbracoApi")]
-    [UmbracoApplicationAuthorize(Constants.Applications.Developer)]
+    [UmbracoTreeAuthorize(Constants.Trees.DataTypes)]
+    [EnableOverrideAuthorization]
     public class DataTypeController : UmbracoAuthorizedJsonController
     {
+        public DataTypeDisplay GetByName(string name)
+        {
+            var dataType = Services.DataTypeService.GetDataTypeDefinitionByName(name);
+            return dataType == null ? null : Mapper.Map<IDataTypeDefinition, DataTypeDisplay>(dataType);
+        }
+
         /// <summary>
         /// Gets the content json for the content id
         /// </summary>
         /// <param name="id"></param>
         /// <returns></returns>
+        /// <remarks>
+        /// Permission is granted to this method if the user has access to any of these trees: DataTypes, Content or Media
+        /// </remarks>
+        [UmbracoTreeAuthorize(Constants.Trees.DataTypes, Constants.Trees.Content, Constants.Trees.Media)]
         public DataTypeDisplay GetById(int id)
         {
             var dataType = Services.DataTypeService.GetDataTypeDefinitionById(id);
@@ -70,7 +81,7 @@ namespace Umbraco.Web.Editors
 
         public DataTypeDisplay GetEmpty()
         {
-            var dt = new DataTypeDefinition(-1, "");
+            var dt = new DataTypeDefinition("");
             return Mapper.Map<IDataTypeDefinition, DataTypeDisplay>(dt);
         }
 

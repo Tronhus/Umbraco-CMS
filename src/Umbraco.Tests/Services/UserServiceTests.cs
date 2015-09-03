@@ -130,9 +130,10 @@ namespace Umbraco.Tests.Services
             var userType = MockedUserType.CreateUserType();
             ServiceContext.UserService.SaveUserType(userType);
             var user = ServiceContext.UserService.CreateUserWithIdentity("JohnDoe", "john@umbraco.io", userType);
-
+            var user2 = ServiceContext.UserService.CreateUserWithIdentity("john2@umbraco.io", "john2@umbraco.io", userType);
             Assert.IsTrue(ServiceContext.UserService.Exists("JohnDoe"));
             Assert.IsFalse(ServiceContext.UserService.Exists("notFound"));
+            Assert.IsTrue(ServiceContext.UserService.Exists("john2@umbraco.io"));
         }
 
         [Test]
@@ -391,6 +392,41 @@ namespace Umbraco.Tests.Services
         }
 
         [Test]
+        public void Can_Add_And_Remove_Sections_From_User()
+        {
+            var userType = ServiceContext.UserService.GetUserTypeByAlias("admin");
+
+            var user1 = ServiceContext.UserService.CreateUserWithIdentity("test1", "test1@test.com", userType);
+
+            //adds some allowed sections
+            user1.AddAllowedSection("test1");
+            user1.AddAllowedSection("test2");
+            user1.AddAllowedSection("test3");
+            user1.AddAllowedSection("test4");
+            ServiceContext.UserService.Save(user1);
+
+            var result1 = ServiceContext.UserService.GetUserById((int)user1.Id);
+            Assert.AreEqual(4, result1.AllowedSections.Count());
+
+            //simulate clearing the sections
+            foreach (var s in user1.AllowedSections)
+            {
+                result1.RemoveAllowedSection(s);
+            }
+            //now just re-add a couple
+            result1.AddAllowedSection("test3");
+            result1.AddAllowedSection("test4");
+            ServiceContext.UserService.Save(result1);
+
+            //assert
+
+            //re-get
+            result1 = ServiceContext.UserService.GetUserById((int)user1.Id);
+            Assert.AreEqual(2, result1.AllowedSections.Count());
+
+        }
+
+        [Test]
         public void Can_Remove_Section_From_All_Assigned_Users()
         {            
             var userType = ServiceContext.UserService.GetUserTypeByAlias("admin");
@@ -413,6 +449,43 @@ namespace Umbraco.Tests.Services
             Assert.IsFalse(result1.AllowedSections.Contains("test"));
             Assert.IsFalse(result2.AllowedSections.Contains("test"));
 
+        }
+
+        [Test]
+        public void Can_Add_Section_To_All_Users()
+        {
+            var userType = ServiceContext.UserService.GetUserTypeByAlias("admin");
+
+            var user1 = ServiceContext.UserService.CreateUserWithIdentity("test1", "test1@test.com", userType);
+            var user2 = ServiceContext.UserService.CreateUserWithIdentity("test2", "test2@test.com", userType);
+            var user3 = ServiceContext.UserService.CreateUserWithIdentity("test3", "test3@test.com", userType);
+            var user4 = ServiceContext.UserService.CreateUserWithIdentity("test4", "test4@test.com", userType);
+
+            //now add the section to specific users
+            ServiceContext.UserService.AddSectionToAllUsers("test", (int)user1.Id, (int)user2.Id);
+
+            //assert
+            var result1 = ServiceContext.UserService.GetUserById((int)user1.Id);
+            var result2 = ServiceContext.UserService.GetUserById((int)user2.Id);
+            var result3 = ServiceContext.UserService.GetUserById((int)user3.Id);
+            var result4 = ServiceContext.UserService.GetUserById((int)user4.Id);
+            Assert.IsTrue(result1.AllowedSections.Contains("test"));
+            Assert.IsTrue(result2.AllowedSections.Contains("test"));
+            Assert.IsFalse(result3.AllowedSections.Contains("test"));
+            Assert.IsFalse(result4.AllowedSections.Contains("test"));
+
+            //now add the section to all users
+            ServiceContext.UserService.AddSectionToAllUsers("test");
+
+            //assert
+            result1 = ServiceContext.UserService.GetUserById((int)user1.Id);
+            result2 = ServiceContext.UserService.GetUserById((int)user2.Id);
+            result3 = ServiceContext.UserService.GetUserById((int)user3.Id);
+            result4 = ServiceContext.UserService.GetUserById((int)user4.Id);
+            Assert.IsTrue(result1.AllowedSections.Contains("test"));
+            Assert.IsTrue(result2.AllowedSections.Contains("test"));
+            Assert.IsTrue(result3.AllowedSections.Contains("test"));
+            Assert.IsTrue(result4.AllowedSections.Contains("test"));
         }
 
         [Test]

@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using Umbraco.Core.Models.EntityBase;
 using Umbraco.Core.Persistence.Mappers;
 
 namespace Umbraco.Core.Models.Membership
@@ -7,7 +8,7 @@ namespace Umbraco.Core.Models.Membership
     /// Defines the interface for a <see cref="User"/>
     /// </summary>
     /// <remarks>Will be left internal until a proper Membership implementation is part of the roadmap</remarks>
-    public interface IUser : IMembershipUser
+    public interface IUser : IMembershipUser, IRememberBeingDirty, ICanBeDirty
     {
         string Name { get; set; }
         int SessionTimeout { get; set; }
@@ -19,7 +20,8 @@ namespace Umbraco.Core.Models.Membership
         /// Gets/sets the user type for the user
         /// </summary>
         IUserType UserType { get; set; }
-        
+
+        //TODO: This should be a private set 
         /// <summary>
         /// The default permission set for the user
         /// </summary>
@@ -36,5 +38,10 @@ namespace Umbraco.Core.Models.Membership
         /// Exposes the basic profile data
         /// </summary>
         IProfile ProfileData { get; }
+
+        /// <summary>
+        /// The security stamp used by ASP.Net identity
+        /// </summary>
+        string SecurityStamp { get; set; }
     }
 }

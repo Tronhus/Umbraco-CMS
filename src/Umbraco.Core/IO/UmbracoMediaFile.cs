@@ -155,18 +155,13 @@ namespace Umbraco.Core.IO
 
                     using (var fs = _fs.OpenFile(Path))
                     {
-                        using (var image = Image.FromStream(fs))
-                        {
-                            var fileWidth = image.Width;
-                            var fileHeight = image.Height;
-                            _size = new Size(fileWidth, fileHeight);
-                        }
+                        _size = ImageHelper.GetDimensions(fs);
                     }
                 }
                 else
                 {
                     _size = new Size(-1, -1);
-                }                
+                }
             }
             return _size.Value;
         }
@@ -179,7 +174,7 @@ namespace Umbraco.Core.IO
 
                 var fileNameThumb = DoResize(width, height, -1, string.Empty);
 
-                return _fs.GetUrl(fileNameThumb);    
+                return _fs.GetUrl(fileNameThumb);
             }
             return string.Empty;
         }
@@ -192,7 +187,7 @@ namespace Umbraco.Core.IO
 
                 var fileNameThumb = DoResize(-1, -1, maxWidthHeight, fileNameAddition);
 
-                return _fs.GetUrl(fileNameThumb);    
+                return _fs.GetUrl(fileNameThumb);
             }
             return string.Empty;
         }
@@ -206,14 +201,14 @@ namespace Umbraco.Core.IO
                     var fileNameThumb = string.IsNullOrWhiteSpace(fileNameAddition)
                         ? string.Format("{0}_UMBRACOSYSTHUMBNAIL.jpg", Path.Substring(0, Path.LastIndexOf(".", StringComparison.Ordinal)))
                         : string.Format("{0}_{1}.jpg", Path.Substring(0, Path.LastIndexOf(".", StringComparison.Ordinal)), fileNameAddition);
-                    
+
                     var thumbnail = maxWidthHeight == -1
                         ? ImageHelper.GenerateThumbnail(image, width, height, fileNameThumb, Extension, _fs)
                         : ImageHelper.GenerateThumbnail(image, maxWidthHeight, fileNameThumb, Extension, _fs);
 
                     return thumbnail.FileName;
                 }
-            }    
+            }
         }
 
         private void EnsureFileSupportsResizing()
@@ -222,6 +217,6 @@ namespace Umbraco.Core.IO
                 throw new InvalidOperationException(string.Format("The file {0} is not an image, so can't get dimensions", Filename));
         }
 
-        
+
     }
 }

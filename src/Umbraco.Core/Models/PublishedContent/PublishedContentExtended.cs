@@ -43,6 +43,11 @@ namespace Umbraco.Core.Models.PublishedContent
 
         internal static IPublishedContentExtended Extend(IPublishedContent content, IEnumerable<IPublishedContent> contentSet)
         {
+            // first unwrap content down to the lowest possible level, ie either the deepest inner
+            // IPublishedContent or the first extended that has added properties. this is to avoid
+            // nesting extended objects as much as possible, so we try to re-extend that lowest
+            // object.
+
             var wrapped = content as PublishedContentExtended;
             while (wrapped != null && ((IPublishedContentExtended)wrapped).HasAddedProperties == false)
                 wrapped = (content = wrapped.Unwrap()) as PublishedContentExtended;
@@ -51,14 +56,49 @@ namespace Umbraco.Core.Models.PublishedContent
             // a model, and then that model has to inherit from PublishedContentExtended,
             // => implements the internal IPublishedContentExtended.
 
-            var model = PublishedContentModelFactory.CreateModel(content);
-            var extended = model == content // == means the factory did not create a model
-              ? new PublishedContentExtended(content) // so we have to extend
-              : model; // else we can use what the factory returned
+            // here we assume that either the factory just created a model that implements
+            // IPublishedContentExtended and therefore does not need to be extended again,
+            // because it can carry the extra property - or that it did *not* create a
+            // model and therefore returned the original content unchanged.
+
+            var model = content.CreateModel();
+            IPublishedContent extended;
+            if (model == content) // == means the factory did not create a model
+            {
+                // so we have to extend
+                var contentWithKey = content as IPublishedContentWithKey;
+                extended = contentWithKey == null
+                    ? new PublishedContentExtended(content)
+                    : new PublishedContentWithKeyExtended(contentWithKey);
+            }
+            else
+            {
+                // else we can use what the factory returned
+                extended = model;
+            }
+
+            // so extended should always implement IPublishedContentExtended, however if
+            // by mistake the factory returned a different object that does not implement
+            // IPublishedContentExtended (which would be an error), throw.
+            //
+            // see also PublishedContentExtensionsForModels.CreateModel
+
+            // NOTE
+            // could we lift that constraint and accept that models just be IPublishedContent?
+            // would then mean that we cannot assume a model is IPublishedContentExtended, so
+            // either it is, or we need to wrap it. so instead of having
+            //   (Model:IPublishedContentExtended (IPublishedContent))
+            // we'd have
+            //   (PublishedContentExtended (Model (IPublishedContent)))
+            // and it is that bad? any other consequences?
+            //
+            // would also allow the factory to cache the model (though that should really
+            // be done by the content cache, not by the factory).
 
             var extended2 = extended as IPublishedContentExtended;
-            if (extended2 != null) // always true, but keeps Resharper happy
-                extended2.SetContentSet(contentSet);
+            if (extended2 == null)
+                throw new Exception("Extended does not implement IPublishedContentExtended.");
+            extended2.SetContentSet(contentSet);
             return extended2;
         }
 

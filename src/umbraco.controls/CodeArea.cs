@@ -3,6 +3,7 @@ using System.Collections;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.Text;
 using System.Web;
 using System.Web.SessionState;
 using System.Web.UI;
@@ -73,24 +74,25 @@ namespace umbraco.uicontrols
 
             if (CodeMirrorEnabled)
             {
-                ClientDependencyLoader.Instance.RegisterDependency(0, "CodeMirror/js/lib/codemirror.js", "UmbracoClient", ClientDependencyType.Javascript);
+                ClientDependencyLoader.Instance.RegisterDependency(0, "lib/CodeMirror/lib/codemirror.js", "UmbracoRoot", ClientDependencyType.Javascript);
 
 
-                ClientDependencyLoader.Instance.RegisterDependency(2, "CodeMirror/js/mode/" + CodeBase.ToString().ToLower() + "/" + CodeBase.ToString().ToLower() + ".js", "UmbracoClient", ClientDependencyType.Javascript);
+                ClientDependencyLoader.Instance.RegisterDependency(2, "lib/CodeMirror/mode/" + CodeBase.ToString().ToLower() + "/" + CodeBase.ToString().ToLower() + ".js", "UmbracoRoot", ClientDependencyType.Javascript);
                 if (CodeBase == EditorType.HtmlMixed)
                 {
-                    ClientDependencyLoader.Instance.RegisterDependency(1, "CodeMirror/js/mode/xml/xml.js", "UmbracoClient", ClientDependencyType.Javascript);
-                    ClientDependencyLoader.Instance.RegisterDependency(1, "CodeMirror/js/mode/javascript/javascript.js", "UmbracoClient", ClientDependencyType.Javascript);
-                    ClientDependencyLoader.Instance.RegisterDependency(1, "CodeMirror/js/mode/css/css.js", "UmbracoClient", ClientDependencyType.Javascript);
+                    ClientDependencyLoader.Instance.RegisterDependency(1, "lib/CodeMirror/mode/htmlmixed/htmlmixed.js", "UmbracoRoot", ClientDependencyType.Javascript);
+                    //ClientDependencyLoader.Instance.RegisterDependency(1, "lib/CodeMirror/mode/xml/xml.js", "UmbracoRoot", ClientDependencyType.Javascript);
+                    //ClientDependencyLoader.Instance.RegisterDependency(1, "lib/CodeMirror/mode/javascript/javascript.js", "UmbracoRoot", ClientDependencyType.Javascript);
+                    //ClientDependencyLoader.Instance.RegisterDependency(1, "lib/CodeMirror/mode/css/css.js", "UmbracoRoot", ClientDependencyType.Javascript);
                 }
 
-                ClientDependencyLoader.Instance.RegisterDependency(2, "CodeMirror/js/lib/util/search.js", "UmbracoClient", ClientDependencyType.Javascript);
-                ClientDependencyLoader.Instance.RegisterDependency(2, "CodeMirror/js/lib/util/searchcursor.js", "UmbracoClient", ClientDependencyType.Javascript);
-                ClientDependencyLoader.Instance.RegisterDependency(2, "CodeMirror/js/lib/util/dialog.js", "UmbracoClient", ClientDependencyType.Javascript);
-                ClientDependencyLoader.Instance.RegisterDependency(2, "CodeMirror/js/lib/util/dialog.css", "UmbracoClient", ClientDependencyType.Css);
+                ClientDependencyLoader.Instance.RegisterDependency(2, "lib/CodeMirror/addon/search/search.js", "UmbracoRoot", ClientDependencyType.Javascript);
+                ClientDependencyLoader.Instance.RegisterDependency(2, "lib/CodeMirror/addon/search/searchcursor.js", "UmbracoRoot", ClientDependencyType.Javascript);
+                ClientDependencyLoader.Instance.RegisterDependency(2, "lib/CodeMirror/addon/dialog/dialog.js", "UmbracoRoot", ClientDependencyType.Javascript);
+                ClientDependencyLoader.Instance.RegisterDependency(2, "lib/CodeMirror/addon/dialog/dialog.css", "UmbracoRoot", ClientDependencyType.Css);
 
-                ClientDependencyLoader.Instance.RegisterDependency(2, "CodeMirror/js/lib/codemirror.css", "UmbracoClient", ClientDependencyType.Css);
-                ClientDependencyLoader.Instance.RegisterDependency(3, "CodeMirror/css/umbracoCustom.css", "UmbracoClient", ClientDependencyType.Css);
+                ClientDependencyLoader.Instance.RegisterDependency(2, "lib/CodeMirror/lib/codemirror.css", "UmbracoRoot", ClientDependencyType.Css);
+                //ClientDependencyLoader.Instance.RegisterDependency(3, "CodeMirror/css/umbracoCustom.css", "UmbracoClient", ClientDependencyType.Css);
                 ClientDependencyLoader.Instance.RegisterDependency(4, "CodeArea/styles.css", "UmbracoClient", ClientDependencyType.Css);
             }
         }
@@ -132,13 +134,13 @@ namespace umbraco.uicontrols
         {
             EnsureChildControls();
 
-            var jsEventCode = "";
+            var jsEventCode = new StringBuilder();
 
 
             if (CodeMirrorEnabled == false)
             {
                 CodeTextBox.RenderControl(writer);
-                jsEventCode = RenderBasicEditor();
+                jsEventCode.Append(RenderBasicEditor());
             }
             else
             {
@@ -148,13 +150,25 @@ namespace umbraco.uicontrols
                 this.ControlStyle.AddAttributesToRender(writer);
                 writer.Write(HtmlTextWriter.TagRightChar);
                 Menu.RenderControl(writer);
+
+                writer.WriteBeginTag("div");
+                writer.WriteAttribute("class", "code-container");
+                this.ControlStyle.AddAttributesToRender(writer);
+                writer.Write(HtmlTextWriter.TagRightChar);
                 CodeTextBox.RenderControl(writer);
                 writer.WriteEndTag("div");
+                writer.WriteEndTag("div");
 
-                jsEventCode = RenderCodeEditor();
+                jsEventCode.Append(RenderCodeEditor());
             }
 
-
+            jsEventCode.Append(@"   
+					//TODO: for now this is a global var, need to refactor all this so that is using proper js standards
+					//with correct objects, and proper accessors to these objects.
+					var UmbEditor;                 
+                    $(document).ready(function () {
+                        //create the editor
+                       UmbEditor = new Umbraco.Controls.CodeEditor.UmbracoEditor(" + (CodeMirrorEnabled == false).ToString().ToLower() + @", '" + ClientID + @"');");
 
             if (this.AutoResize)
             {
@@ -165,27 +179,22 @@ namespace umbraco.uicontrols
                     OffSetY += 50;
                 }
 
-                jsEventCode += @"   
-					//TODO: for now this is a global var, need to refactor all this so that is using proper js standards
-					//with correct objects, and proper accessors to these objects.
-					var UmbEditor;                 
-                    $(document).ready(function () {
-                        //create the editor
-                       UmbEditor = new Umbraco.Controls.CodeEditor.UmbracoEditor(" + (CodeMirrorEnabled == false).ToString().ToLower() + @", '" + this.ClientID + @"');
-                       var m_textEditor = jQuery('#" + this.ClientID + @"');
+                //add the resize code
+                jsEventCode.Append(@"
+                        var m_textEditor = jQuery('#" + ClientID + @"');
                    
                        //with codemirror adding divs for line numbers, we need to target a different element
                        m_textEditor = m_textEditor.find('iframe').length > 0 ? m_textEditor.children('div').get(0) : m_textEditor.get(0);
                    
-                       jQuery(window).resize(function(){  resizeTextArea(m_textEditor, " + OffSetX.ToString() + "," + OffSetY.ToString() + @"); });
-            	       jQuery(document).ready(function(){  resizeTextArea(m_textEditor, " + OffSetX.ToString() + "," + OffSetY.ToString() + @"); });
-                    });";
-  
+                       jQuery(window).resize(function(){  resizeTextArea(m_textEditor, " + OffSetX + "," + OffSetY + @"); });
+            	       jQuery(document).ready(function(){  resizeTextArea(m_textEditor, " + OffSetX + "," + OffSetY + @"); });");
+
             }
 
-            jsEventCode = string.Format(@"<script type=""text/javascript"">{0}</script>", jsEventCode);
-            writer.WriteLine(jsEventCode);
+            jsEventCode.Append(@"                       
+                    });");
 
+            writer.WriteLine(@"<script type=""text/javascript"">{0}</script>", jsEventCode);
 
         }
 
@@ -212,22 +221,16 @@ namespace umbraco.uicontrols
             var jsEventCode = @"
                                 var textarea = document.getElementById('" + CodeTextBox.ClientID + @"');
                                 var codeEditor = CodeMirror.fromTextArea(textarea, {
-                                                width: ""100%"",
-                                                height: ""100%"",
                                                 tabMode: ""shift"",
                                                 matchBrackets: true,
                                                 indentUnit: 4,
                                                 indentWithTabs: true,
                                                 enterMode: ""keep"",
-                                                onCursorActivity: updateLineInfo,
                                                 lineWrapping: false" +
                                                 editorMimetype + @",
                                                 lineNumbers: true" +
                                                 extraKeys + @"
-                                                });
-                                    
-                                    //resizeTextArea(m_textEditor, " + OffSetX.ToString() + "," + OffSetY.ToString() + @");
-                                    updateLineInfo(codeEditor);
+                                                });                                    
                                 ";
 
             return jsEventCode;

@@ -10,19 +10,12 @@ namespace Umbraco.Tests.TestHelpers
     [TestFixture]
     public abstract class BaseUmbracoConfigurationTest
     {
-        [TestFixtureSetUp]
-        public void InitializeFixture()
-        {
-            TestHelper.SetupLog4NetForTests();
-        }
+       
 
         [SetUp]
         public virtual void Initialize()
         {
-            using (DisposableTimer.TraceDuration<BaseUmbracoConfigurationTest>("init"))
-            {
-                SettingsForTests.Reset();
-            }
+            SettingsForTests.Reset();
             
         }
 
@@ -30,10 +23,7 @@ namespace Umbraco.Tests.TestHelpers
         public virtual void TearDown()
         {
             //reset settings
-            using (DisposableTimer.TraceDuration<BaseUmbracoConfigurationTest>("teardown"))
-            {
-                SettingsForTests.Reset();            
-            }
+            SettingsForTests.Reset();            
             
         }
     }

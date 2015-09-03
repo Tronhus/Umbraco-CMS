@@ -12,6 +12,7 @@ using Umbraco.Web.WebApi;
 using System.Linq;
 using Umbraco.Web.WebApi.Filters;
 using Constants = Umbraco.Core.Constants;
+using Newtonsoft.Json;
 
 namespace Umbraco.Web.Editors
 {
@@ -23,8 +24,8 @@ namespace Umbraco.Web.Editors
     /// <summary>
     /// An API controller used for dealing with content types
     /// </summary>
-    [PluginController("UmbracoApi")]    
-    public class ContentTypeController : UmbracoAuthorizedJsonController
+    [PluginController("UmbracoApi")]
+    public class ContentTypeController : ContentTypeControllerBase
     {
         private ICultureDictionary _cultureDictionary;
 
@@ -45,18 +46,31 @@ namespace Umbraco.Web.Editors
         {
         }
 
+
+        /// <summary>
+        /// Gets all user defined properties.
+        /// </summary>
+        /// <returns></returns>
+        public IEnumerable<string> GetAllPropertyTypeAliases()
+        {
+            return ApplicationContext.Services.ContentTypeService.GetAllPropertyTypeAliases();
+        }
+
         /// <summary>
         /// Returns the allowed child content type objects for the content item id passed in
         /// </summary>
         /// <param name="contentId"></param>
         public IEnumerable<ContentTypeBasic> GetAllowedChildren(int contentId)
         {
+            if (contentId == Constants.System.RecycleBinContent)
+                return Enumerable.Empty<ContentTypeBasic>();
+
             IEnumerable<IContentType> types;
             if (contentId == Constants.System.Root)
             {
                 types = Services.ContentTypeService.GetAllContentTypes().ToList();
 
-                //if no allowed root types are set, just return everythibg
+                //if no allowed root types are set, just return everything
                 if(types.Any(x => x.AllowedAsRoot))
                     types = types.Where(x => x.AllowedAsRoot);
             }
@@ -67,9 +81,12 @@ namespace Umbraco.Web.Editors
                 {
                     throw new HttpResponseException(HttpStatusCode.NotFound);
                 }
-                types = contentItem.ContentType.AllowedContentTypes
-                    .Select(x => Services.ContentTypeService.GetContentType(x.Id.Value))
-                    .ToList();
+
+                var ids = contentItem.ContentType.AllowedContentTypes.Select(x => x.Id.Value).ToArray();
+                
+                if (ids.Any() == false) return Enumerable.Empty<ContentTypeBasic>();
+
+                types = Services.ContentTypeService.GetAllContentTypes(ids).ToList();
             }
 
             var basics = types.Select(Mapper.Map<IContentType, ContentTypeBasic>).ToList();

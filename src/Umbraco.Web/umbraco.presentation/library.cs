@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Web;
 using System.Web.UI;
 using System.Xml;
+using System.Xml.Linq;
 using System.Xml.XPath;
 using Newtonsoft.Json;
 using Umbraco.Core;
@@ -16,21 +17,23 @@ using Umbraco.Core.Cache;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.Logging;
+using Umbraco.Core.Models;
+using Umbraco.Core.Services;
 using Umbraco.Web;
 using Umbraco.Web.Cache;
 using Umbraco.Web.Templates;
 using umbraco.BusinessLogic;
 using umbraco.cms.businesslogic;
-using umbraco.cms.businesslogic.media;
-using umbraco.cms.businesslogic.member;
-using umbraco.cms.businesslogic.propertytype;
-using umbraco.cms.businesslogic.relation;
 using umbraco.cms.businesslogic.web;
 using umbraco.cms.helpers;
 using umbraco.scripting;
 using umbraco.DataLayer;
-using umbraco.cms.businesslogic.language;
 using Umbraco.Core.IO;
+using Language = umbraco.cms.businesslogic.language.Language;
+using Media = umbraco.cms.businesslogic.media.Media;
+using Member = umbraco.cms.businesslogic.member.Member;
+using PropertyType = umbraco.cms.businesslogic.propertytype.PropertyType;
+using Relation = umbraco.cms.businesslogic.relation.Relation;
 using UmbracoContext = umbraco.presentation.UmbracoContext;
 
 namespace umbraco
@@ -490,46 +493,50 @@ namespace umbraco
             {
                 if (UmbracoConfig.For.UmbracoSettings().Content.UmbracoLibraryCacheDuration > 0)
                 {
-                    XPathNodeIterator retVal = ApplicationContext.Current.ApplicationCache.GetCacheItem(
+                    var xml = ApplicationContext.Current.ApplicationCache.GetCacheItem(
                         string.Format(
                             "{0}_{1}_{2}", CacheKeys.MediaCacheKey, MediaId, Deep),
                         TimeSpan.FromSeconds(UmbracoConfig.For.UmbracoSettings().Content.UmbracoLibraryCacheDuration),
                         () => GetMediaDo(MediaId, Deep));
 
-                    if (retVal != null)
-                        return retVal;
+                    if (xml != null)
+                    {                   
+                        //returning the root element of the Media item fixes the problem
+                        return xml.CreateNavigator().Select("/");
+                    }
+                        
                 }
                 else
                 {
-                    return GetMediaDo(MediaId, Deep);
+                    var xml = GetMediaDo(MediaId, Deep);
+                    
+                    //returning the root element of the Media item fixes the problem
+                    return xml.CreateNavigator().Select("/");
                 }
-
             }
-            catch
+            catch(Exception ex)
             {
+                LogHelper.Error<library>("An error occurred looking up media", ex);
             }
 
-            XmlDocument xd = new XmlDocument();
-            xd.LoadXml(string.Format("<error>No media is maching '{0}'</error>", MediaId));
-            return xd.CreateNavigator().Select("/");
+            LogHelper.Debug<library>("No media result for id {0}", () => MediaId);
+
+            var errorXml = new XElement("error", string.Format("No media is maching '{0}'", MediaId));
+            return errorXml.CreateNavigator().Select("/");
         }
 
-        private static XPathNodeIterator GetMediaDo(int mediaId, bool deep)
+        private static XElement GetMediaDo(int mediaId, bool deep)
         {
-            var m = new Media(mediaId);
-            if (m.nodeObjectType == Media._objectType)
-            {
-                var mXml = new XmlDocument();
-                var xml = m.ToXml(mXml, deep);
-                //This will be null if the media isn't public (meaning it is in the trash)
-                if (xml == null) return null;
-                //TODO: This is an aweful way of loading in XML - it is very slow.
-                mXml.LoadXml(xml.OuterXml);
-                var xp = mXml.CreateNavigator();
-                var xpath = UmbracoConfig.For.UmbracoSettings().Content.UseLegacyXmlSchema ? "/node" : String.Format("/{0}", Casing.SafeAliasWithForcingCheck(m.ContentType.Alias));
-                return xp.Select(xpath);
-            }
-            return null;
+            var media = ApplicationContext.Current.Services.MediaService.GetById(mediaId);
+            if (media == null) return null;
+            var serializer = new EntityXmlSerializer();
+            var serialized = serializer.Serialize(
+                ApplicationContext.Current.Services.MediaService, 
+                ApplicationContext.Current.Services.DataTypeService,
+                ApplicationContext.Current.Services.UserService,                
+                media, 
+                deep);
+            return serialized;
         }
 
         /// <summary>
@@ -545,35 +552,42 @@ namespace umbraco
             {
                 if (UmbracoConfig.For.UmbracoSettings().Content.UmbracoLibraryCacheDuration > 0)
                 {
-                    var retVal = ApplicationContext.Current.ApplicationCache.GetCacheItem(
+                    var xml = ApplicationContext.Current.ApplicationCache.GetCacheItem(
                         string.Format(
                             "{0}_{1}", CacheKeys.MemberLibraryCacheKey, MemberId),
                         TimeSpan.FromSeconds(UmbracoConfig.For.UmbracoSettings().Content.UmbracoLibraryCacheDuration),
                         () => GetMemberDo(MemberId));
 
-                    if (retVal != null)
-                        return retVal.CreateNavigator().Select("/");
+                    if (xml != null)
+                    {
+                        return xml.CreateNavigator().Select("/");
+                    }
                 }
                 else
                 {
                     return GetMemberDo(MemberId).CreateNavigator().Select("/");
                 }
-
             }
-            catch
+            catch (Exception ex)
             {
+                LogHelper.Error<library>("An error occurred looking up member", ex);
             }
-            XmlDocument xd = new XmlDocument();
+
+            LogHelper.Debug<library>("No member result for id {0}", () => MemberId);
+
+            var xd = new XmlDocument();
             xd.LoadXml(string.Format("<error>No member is maching '{0}'</error>", MemberId));
             return xd.CreateNavigator().Select("/");
         }
 
-        private static XmlDocument GetMemberDo(int MemberId)
+        private static XElement GetMemberDo(int MemberId)
         {
-            Member m = new Member(MemberId);
-            XmlDocument mXml = new XmlDocument();
-            mXml.LoadXml(m.ToXml(mXml, false).OuterXml);
-            return mXml;
+            var member = ApplicationContext.Current.Services.MemberService.GetById(MemberId);
+            if (member == null) return null;
+            var serializer = new EntityXmlSerializer();
+            var serialized = serializer.Serialize(
+                ApplicationContext.Current.Services.DataTypeService, member);
+            return serialized;
         }
 
         /// <summary>
@@ -1365,8 +1379,9 @@ namespace umbraco
                 nav.MoveToId(HttpContext.Current.Items["pageID"].ToString());
                 return nav.Select(".");
             }
-            catch
+            catch (Exception ex)
             {
+                LogHelper.Error<library>("Could not retrieve current xml node", ex);
             }
 
             XmlDocument xd = new XmlDocument();
@@ -1894,52 +1909,7 @@ namespace umbraco
             return cms.helpers.xhtml.TidyHtml(StringToTidy);
         }
 
-        internal static string GetCurrentNotFoundPageId()
-        {
-            //XmlNode error404Node = UmbracoSettings.GetKeyAsNode("/settings/content/errors/error404");
-            if (UmbracoConfig.For.UmbracoSettings().Content.Error404Collection.Count() > 1)
-            {
-                // try to get the 404 based on current culture (via domain)
-                IContentErrorPage cultureErr;
-                if (Domain.Exists(HttpContext.Current.Request.ServerVariables["SERVER_NAME"]))
-                {
-                    var d = Domain.GetDomain(HttpContext.Current.Request.ServerVariables["SERVER_NAME"]);
-
-                    // test if a 404 page exists with current culture
-                    cultureErr = UmbracoConfig.For.UmbracoSettings().Content.Error404Collection
-                                                     .FirstOrDefault(x => x.Culture == d.Language.CultureAlias);
-
-                    if (cultureErr != null)
-                    {
-                        return cultureErr.ContentId.ToInvariantString();
-                    }
-
-                }
-
-                // test if a 404 page exists with current culture thread
-                cultureErr = UmbracoConfig.For.UmbracoSettings().Content.Error404Collection
-                                                 .FirstOrDefault(x => x.Culture == System.Threading.Thread.CurrentThread.CurrentUICulture.Name);
-                if (cultureErr != null)
-                {
-                    return cultureErr.ContentId.ToInvariantString();
-                }
-
-                // there should be a default one!
-                cultureErr = UmbracoConfig.For.UmbracoSettings().Content.Error404Collection
-                                                 .FirstOrDefault(x => x.Culture == "default");
-                if (cultureErr != null)
-                {
-                    return cultureErr.ContentId.ToInvariantString();
-                }
-            }
-            else
-            {
-
-                return UmbracoConfig.For.UmbracoSettings().Content.Error404Collection.First().ContentId.ToInvariantString();                
-            }
-
-            return "";
-        }
+        
 
         #endregion
 

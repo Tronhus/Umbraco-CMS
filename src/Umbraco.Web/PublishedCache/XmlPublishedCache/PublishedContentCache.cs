@@ -54,10 +54,12 @@ namespace Umbraco.Web.PublishedCache.XmlPublishedCache
             content = content ?? DetermineIdByRoute(umbracoContext, preview, route, hideTopLevelNode.Value);
 
             // cache if we have a content and not previewing
-            if (content != null && !preview)
+            if (content != null && preview == false)
             {
                 var domainRootNodeId = route.StartsWith("/") ? -1 : int.Parse(route.Substring(0, route.IndexOf('/')));
-                var iscanon = !UnitTesting && !DomainHelper.ExistsDomainInPath(DomainHelper.GetAllDomains(false), content.Path, domainRootNodeId);
+                var iscanon = 
+                    UnitTesting == false 
+                    && DomainHelper.ExistsDomainInPath(umbracoContext.Application.Services.DomainService.GetAll(false), content.Path, domainRootNodeId) == false;
                 // and only if this is the canonical url (the one GetUrl would return)
                 if (iscanon)
                     _routesCache.Store(contentId, route);
@@ -79,7 +81,7 @@ namespace Umbraco.Web.PublishedCache.XmlPublishedCache
             route = DetermineRouteById(umbracoContext, preview, contentId);
 
             // cache if we have a route and not previewing
-            if (route != null && !preview)
+            if (route != null && preview == false)
                 _routesCache.Store(contentId, route);
 
             return route;
@@ -120,12 +122,14 @@ namespace Umbraco.Web.PublishedCache.XmlPublishedCache
             if (node == null)
                 return null;
 
+            var domainHelper = new DomainHelper(umbracoContext.Application.Services.DomainService);
+
             // walk up from that node until we hit a node with a domain,
             // or we reach the content root, collecting urls in the way
             var pathParts = new List<string>();
             var n = node;
-            var hasDomains = DomainHelper.NodeHasDomains(n.Id);
-            while (!hasDomains && n != null) // n is null at root
+            var hasDomains = domainHelper.NodeHasDomains(n.Id);
+            while (hasDomains == false && n != null) // n is null at root
             {
                 // get the url
                 var urlName = n.UrlName;
@@ -133,11 +137,11 @@ namespace Umbraco.Web.PublishedCache.XmlPublishedCache
 
                 // move to parent node
                 n = n.Parent;
-                hasDomains = n != null && DomainHelper.NodeHasDomains(n.Id);
+                hasDomains = n != null && domainHelper.NodeHasDomains(n.Id);
             }
 
             // no domain, respect HideTopLevelNodeFromPath for legacy purposes
-            if (!hasDomains && global::umbraco.GlobalSettings.HideTopLevelNodeFromPath)
+            if (hasDomains == false && global::umbraco.GlobalSettings.HideTopLevelNodeFromPath)
                 ApplyHideTopLevelNodeFromPath(umbracoContext, node, pathParts);
 
             // assemble the route
@@ -242,13 +246,13 @@ namespace Umbraco.Web.PublishedCache.XmlPublishedCache
 		{
 		    return xmlNode == null 
                 ? null 
-                : PublishedContentModelFactory.CreateModel(new XmlPublishedContent(xmlNode, isPreviewing));
+                : (new XmlPublishedContent(xmlNode, isPreviewing)).CreateModel();
 		}
 
         private static IEnumerable<IPublishedContent> ConvertToDocuments(XmlNodeList xmlNodes, bool isPreviewing)
         {
             return xmlNodes.Cast<XmlNode>()
-                .Select(xmlNode => PublishedContentModelFactory.CreateModel(new XmlPublishedContent(xmlNode, isPreviewing)));
+                .Select(xmlNode => (new XmlPublishedContent(xmlNode, isPreviewing)).CreateModel());
         }
 
         #endregion
@@ -463,12 +467,13 @@ namespace Umbraco.Web.PublishedCache.XmlPublishedCache
 
         #endregion
 
-        #region Fragments
+        #region Detached
 
-        public IPublishedContent CreateFragment(string contentTypeAlias, IDictionary<string, object> dataValues,
-            bool isPreviewing, bool managed)
+        public IPublishedProperty CreateDetachedProperty(PublishedPropertyType propertyType, object value, bool isPreviewing)
         {
-            return new PublishedFragment(contentTypeAlias, dataValues, isPreviewing, managed);
+            if (propertyType.IsDetachedOrNested == false)
+                throw new ArgumentException("Property type is neither detached nor nested.", "propertyType");
+            return new XmlPublishedProperty(propertyType, isPreviewing, value.ToString());
         }
 
         #endregion

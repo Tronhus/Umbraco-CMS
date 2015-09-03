@@ -15,27 +15,34 @@ namespace umbraco
         {
             var scriptFileAr = Alias.Split('\u00A4');
 
-            var relPath = scriptFileAr[0];
-            var fileName = scriptFileAr[1];
-            var fileType = scriptFileAr[2];
+            var fileName = scriptFileAr[0];
+            var fileType = scriptFileAr[1];
             
             var createFolder = ParentID;
 
             if (createFolder == 1)
             {
-                ApplicationContext.Current.Services.FileService.CreateScriptFolder(relPath + fileName);
+                ApplicationContext.Current.Services.FileService.CreateScriptFolder(fileName);
                 return true;
             }
 
-            var found = ApplicationContext.Current.Services.FileService.GetScriptByName(relPath + fileName + "." + fileType);
+            // remove file extension
+            if (fileName.ToLowerInvariant().EndsWith(fileType.ToLowerInvariant()))
+            {
+                fileName = fileName.Substring(0,
+                                              fileName.ToLowerInvariant().LastIndexOf(fileType.ToLowerInvariant(), System.StringComparison.Ordinal) - 1);
+            }
+
+            var scriptPath = fileName + "." + fileType;
+            var found = ApplicationContext.Current.Services.FileService.GetScriptByName(scriptPath);
             if (found != null)
             {
-                _returnUrl = string.Format("settings/scripts/editScript.aspx?file={0}{1}.{2}", relPath, fileName, fileType);
+                _returnUrl = string.Format("settings/scripts/editScript.aspx?file={0}", scriptPath.TrimStart('/'));
                 return true;
             }
-
-            ApplicationContext.Current.Services.FileService.SaveScript(new Script(relPath + fileName + "." + fileType));
-            _returnUrl = string.Format("settings/scripts/editScript.aspx?file={0}{1}.{2}", relPath, fileName, fileType);
+            var script = new Script(fileName + "." + fileType);
+            ApplicationContext.Current.Services.FileService.SaveScript(script);
+            _returnUrl = string.Format("settings/scripts/editScript.aspx?file={0}", scriptPath.TrimStart('/'));
             return true;
         }
 
@@ -48,7 +55,7 @@ namespace umbraco
             }
             else
             {
-                ApplicationContext.Current.Services.FileService.DeleteScript(Alias.TrimStart('/'));    
+                ApplicationContext.Current.Services.FileService.DeleteScript(Alias.TrimStart('/'), User.Id);    
             }
 
             return true;

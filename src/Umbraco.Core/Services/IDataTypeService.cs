@@ -6,10 +6,17 @@ using umbraco.interfaces;
 namespace Umbraco.Core.Services
 {
     /// <summary>
-    /// Defines the DataType Service, which is an easy access to operations involving <see cref="IDataType"/> and <see cref="IDataTypeDefinition"/>
+    /// Defines the DataType Service, which is an easy access to operations involving <see cref="IDataTypeDefinition"/> 
     /// </summary>
     public interface IDataTypeService : IService
     {
+        /// <summary>
+        /// Gets a <see cref="IDataTypeDefinition"/> by its Name
+        /// </summary>
+        /// <param name="name">Name of the <see cref="IDataTypeDefinition"/></param>
+        /// <returns><see cref="IDataTypeDefinition"/></returns>
+        IDataTypeDefinition GetDataTypeDefinitionByName(string name);
+
         /// <summary>
         /// Gets a <see cref="IDataTypeDefinition"/> by its Id
         /// </summary>
@@ -44,6 +51,14 @@ namespace Umbraco.Core.Services
         /// <param name="dataTypeDefinitions"><see cref="IDataTypeDefinition"/> to save</param>
         /// <param name="userId">Id of the user issueing the save</param>
         void Save(IEnumerable<IDataTypeDefinition> dataTypeDefinitions, int userId = 0);
+
+        /// <summary>
+        /// Saves a collection of <see cref="IDataTypeDefinition"/>
+        /// </summary>
+        /// <param name="dataTypeDefinitions"><see cref="IDataTypeDefinition"/> to save</param>
+        /// <param name="userId">Id of the user issueing the save</param>
+        /// <param name="raiseEvents">Boolean indicating whether or not to raise events</param>
+        void Save(IEnumerable<IDataTypeDefinition> dataTypeDefinitions, int userId, bool raiseEvents);
 
         /// <summary>
         /// Deletes an <see cref="IDataTypeDefinition"/>
@@ -103,17 +118,24 @@ namespace Umbraco.Core.Services
         /// <summary>
         /// Saves a list of PreValues for a given DataTypeDefinition
         /// </summary>
-        /// <param name="id">Id of the DataTypeDefinition to save PreValues for</param>
+        /// <param name="dataTypeId">Id of the DataTypeDefinition to save PreValues for</param>
         /// <param name="values">List of string values to save</param>
         [Obsolete("This should no longer be used, use the alternative SavePreValues or SaveDataTypeAndPreValues methods instead. This will only insert pre-values without keys")]
-        void SavePreValues(int id, IEnumerable<string> values);
+        void SavePreValues(int dataTypeId, IEnumerable<string> values);
 
         /// <summary>
         /// Saves a list of PreValues for a given DataTypeDefinition
         /// </summary>
-        /// <param name="id">Id of the DataTypeDefinition to save PreValues for</param>
+        /// <param name="dataTypeId">Id of the DataTypeDefinition to save PreValues for</param>
         /// <param name="values">List of key/value pairs to save</param>
-        void SavePreValues(int id, IDictionary<string, PreValue> values);
+        void SavePreValues(int dataTypeId, IDictionary<string, PreValue> values);
+
+        /// <summary>
+        /// Saves a list of PreValues for a given DataTypeDefinition
+        /// </summary>
+        /// <param name="dataTypeDefinition">The DataTypeDefinition to save PreValues for</param>
+        /// <param name="values">List of key/value pairs to save</param>
+        void SavePreValues(IDataTypeDefinition dataTypeDefinition, IDictionary<string, PreValue> values);
 
         /// <summary>
         /// Saves the data type and it's prevalues

@@ -1,5 +1,6 @@
 using System;
 using System.Data;
+using System.IO;
 using System.Web.Security;
 using Umbraco.Core;
 using Umbraco.Core.IO;
@@ -9,6 +10,7 @@ using umbraco.BusinessLogic;
 using umbraco.DataLayer;
 using umbraco.BasePages;
 using umbraco.cms.businesslogic.member;
+using Umbraco.Core.FileResources;
 
 namespace umbraco
 {
@@ -22,12 +24,17 @@ namespace umbraco
 
         public override bool PerformSave()
         {
+            IOHelper.EnsurePathExists(SystemDirectories.Xslt);
+            IOHelper.EnsureFileExists(Path.Combine(IOHelper.MapPath(SystemDirectories.Xslt), "web.config"), Files.BlockingWebConfig);
+
             var template = Alias.Substring(0, Alias.IndexOf("|||"));
             var fileName = Alias.Substring(Alias.IndexOf("|||") + 3, Alias.Length - Alias.IndexOf("|||") - 3).Replace(" ", "");
+            if (fileName.ToLowerInvariant().EndsWith(".xslt") == false)
+                fileName += ".xslt";
             var xsltTemplateSource = IOHelper.MapPath(SystemDirectories.Umbraco + "/xslt/templates/" + template);
-            var xsltNewFilename = IOHelper.MapPath(SystemDirectories.Xslt + "/" + fileName + ".xslt");
+            var xsltNewFilename = IOHelper.MapPath(SystemDirectories.Xslt + "/" + fileName);
             
-			if (!System.IO.File.Exists(xsltNewFilename))
+			if (File.Exists(xsltNewFilename) == false)
 			{
 				if (fileName.Contains("/")) //if there's a / create the folder structure for it
 				{
@@ -58,16 +65,19 @@ namespace umbraco
 				// Create macro?
 				if (ParentID == 1)
 				{
-                    var name = Alias.Substring(Alias.IndexOf("|||") + 3, Alias.Length - Alias.IndexOf("|||") - 3)
-				                     .SplitPascalCasing().ToFirstUpperInvariant();
+                    var name = Alias.Substring(Alias.IndexOf("|||") + 3, Alias.Length - Alias.IndexOf("|||") - 3);
+                    if (name.ToLowerInvariant().EndsWith(".xslt"))
+                        name = name.Substring(0, name.Length - 5);
+
+				    name = name.SplitPascalCasing().ToFirstUpperInvariant();
 					cms.businesslogic.macro.Macro m =
 						cms.businesslogic.macro.Macro.MakeNew(name);
-					m.Xslt = fileName + ".xslt";
+					m.Xslt = fileName;
                     m.Save();
 				}
 			}
 
-            _returnUrl = string.Format(SystemDirectories.Umbraco + "/developer/xslt/editXslt.aspx?file={0}.xslt", fileName);
+            _returnUrl = string.Format(SystemDirectories.Umbraco + "/developer/xslt/editXslt.aspx?file={0}", fileName);
 
             return true;
         }

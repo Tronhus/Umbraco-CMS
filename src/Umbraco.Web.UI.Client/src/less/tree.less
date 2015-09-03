@@ -3,14 +3,13 @@
 
 
 .umb-item-list {
-	margin: 0px;
+	margin: 0;
 	width: auto;
 	display: block
 }
 .umb-item-list li {
 	display: block;
 	width: auto;
-	display: block
 }
 
 
@@ -20,7 +19,7 @@
 // -------------------------
 
 .umb-tree {
-	margin: 0px;
+	margin: 0;
 	min-width: 100%;
 	width: auto;
 }
@@ -29,17 +28,17 @@
 	display: block;
 	min-width: 100%;
 	width: auto;
-	display: block
 }
 .umb-tree li.current > div, .umb-tree div.selected {
 	background: @blue;
 }
-.umb-tree li.current > div a.umb-options i, .umb-tree div.selected i{
+.umb-tree li.current > div a.umb-options i, .umb-tree div.selected i {
 	background: #fff;
 	border-color: @blue;
 }
-.umb-tree li.current > div a, 
-.umb-tree li.current > div i.icon{
+.umb-tree li.current > div a,
+.umb-tree li.current > div i.icon,
+.umb-tree li.current > div ins {
 	color: white !important;
 	background: @blue;
 	border-color: @blue;
@@ -57,8 +56,8 @@
 	white-space: nowrap
 }
 .umb-tree ul {
-	padding: 0px;
-	margin: 0px;
+	padding: 0;
+	margin: 0;
 	min-width: 100%;
 	width: 100%;
 	//display: table
@@ -111,21 +110,19 @@
 	display: inline-block;
 	visibility: hidden;
 	text-decoration: none;
+    font-size: 12px;
 }
+
 .umb-tree li:hover ins {
 	visibility: visible;
 	cursor: pointer
-}
-
-.umb-tree ins {
-	font-size: 12px;
 }
 
 .umb-tree .icon {
 	vertical-align: middle;
 	margin: 1px 13px 1px 0px;
 	color: #21201C;
-	font-size: 15px;
+	font-size: 20px;
 }
 .umb-tree i.noSpr {
 	display: inline-block;
@@ -145,8 +142,25 @@
 	padding-left: 35px;
 }
 
+.umb-tree .umb-tree-node-search {
+    cursor:pointer;
+    /*color:@turquoise;*/
+}
+
+.icon-check:before {
+	content: "\e165";
+}
+
+.umb-tree .umb-tree-node-checked i {
+    color:@blue !important;
+}
+.umb-tree .umb-tree-node-checked i:before {
+	/*check box*/
+    content: "\e165" !important;
+}
+
 a.umb-options {
-	visibility: hidden;	
+	visibility: hidden;
 	cursor: pointer;
 	display: inline-block;
 	text-align: center;
@@ -219,6 +233,7 @@ li.root > div > a.umb-options {
 }
 
 
+
 // Tree item states
 // -------------------------
 div.not-published > i.icon,div.not-published > a{
@@ -248,6 +263,29 @@ div.not-allowed > i.icon,div.not-allowed > a{
 	cursor: not-allowed;
 }
 
+// override small icon color
+.umb-tree li.current > div:before {
+	color: @blueLight;
+}
+div.is-container:before{
+	content:"\e04e";
+	font-family: 'icomoon';
+	color: @turquoise;
+	position: absolute;
+	font-size: 8px;
+	padding-left: 13px;
+	padding-top: 8px;
+}
+
+div.locked:before{
+	content:"\e0a7";
+	font-family: 'icomoon';
+	color: @red;
+	position: absolute;
+	font-size: 20px;
+	padding-left: 7px;
+	padding-top: 7px;
+}
 
 // Tree context menu
 // -------------------------
@@ -374,7 +412,7 @@ div.not-allowed > i.icon,div.not-allowed > a{
 
 
 
-// Loading Animation 
+// Loading Animation
 // ------------------------
 
 .umb-tree li div.l{
@@ -383,94 +421,17 @@ height:1px;
 overflow:hidden;
 }
 
-.umb-tree li div.l div, div.umb-loader{
-background-color: @blue;
-margin-top:0;
-margin-left:-100%;
--moz-animation-name:bounce_loadingProgressG;
--moz-animation-duration:1s;
--moz-animation-iteration-count:infinite;
--moz-animation-timing-function:linear;
--webkit-animation-name:bounce_loadingProgressG;
--webkit-animation-duration:1s;
--webkit-animation-iteration-count:infinite;
--webkit-animation-timing-function:linear;
--ms-animation-name:bounce_loadingProgressG;
--ms-animation-duration:1s;
--ms-animation-iteration-count:infinite;
--ms-animation-timing-function:linear;
--o-animation-name:bounce_loadingProgressG;
--o-animation-duration:1s;
--o-animation-iteration-count:infinite;
--o-animationtiming-function:linear;
-animation-name:bounce_loadingProgressG;
-animation-duration:1s;
-animation-iteration-count:infinite;
-animation-timing-function:linear;
-width:100%;
-height:1px;
+.umb-tree li div.l div {
+    .umb-loader;
 }
 
-
-    @-moz-keyframes bounce_loadingProgressG{
-    0%{
-    margin-left:-100%;
-    }
-
-    100%{
-    margin-left:100%;
-    }
-
-    }
-
-    @-webkit-keyframes bounce_loadingProgressG{
-    0%{
-    margin-left:-100%;
-    }
-
-    100%{
-    margin-left:100%;
-    }
-
-    }
-
-    @-ms-keyframes bounce_loadingProgressG{
-    0%{
-    margin-left:-100%;
-    }
-
-    100%{
-    margin-left:100%;
-    }
-
-    }
-
-    @-o-keyframes bounce_loadingProgressG{
-    0%{
-    margin-left:-100%;
-    }
-
-    100%{
-    margin-left:100%;
-    }
-
-    }
-
-    @keyframes bounce_loadingProgressG{
-    0%{
-    margin-left:-100%;
-    }
-    100%{
-    margin-left:100%;
-    }
-}
 //loader defaults
-.umb-loader{
+.umb-tree .umb-loader{
 	height: 10px; margin: 10px 10px 10px 10px;
 }
 
 
-body.touch .umb-tree .icon{font-size: 17px;}
+/*body.touch .umb-tree .icon{font-size: 19px;}*/
 body.touch .umb-tree ins{font-size: 14px; visibility: visible; padding: 7px;}
 body.touch .umb-tree li div {
 	padding-top: 8px;
@@ -484,4 +445,3 @@ body.touch .umb-actions a{
 }
 
 body.touch a.umb-options i {margin-top: 20px;}
-

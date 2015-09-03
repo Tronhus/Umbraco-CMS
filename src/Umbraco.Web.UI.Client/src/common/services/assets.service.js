@@ -44,20 +44,39 @@ angular.module('umbraco.services')
 .factory('assetsService', function ($q, $log, angularHelper, umbRequestHelper, $rootScope, $http) {
 
     var initAssetsLoaded = false;
-    var appendRnd = function(url){
+    var appendRnd = function (url) {
         //if we don't have a global umbraco obj yet, the app is bootstrapping
-        if(!Umbraco.Sys.ServerVariables.application){
+        if (!Umbraco.Sys.ServerVariables.application) {
             return url;
         }
 
-        var rnd = Umbraco.Sys.ServerVariables.isDebuggingEnabled ?  (new Date()).getTime() : Umbraco.Sys.ServerVariables.application.version +"."+Umbraco.Sys.ServerVariables.application.cdf;
-        var _op = (url.indexOf("?")>0) ? "&" : "?";
+        var rnd = Umbraco.Sys.ServerVariables.application.version + "." + Umbraco.Sys.ServerVariables.application.cdf;
+        var _op = (url.indexOf("?") > 0) ? "&" : "?";
         url = url + _op + "umb__rnd=" + rnd;
         return url;
     };
 
-    return {
-        
+    function convertVirtualPath(path) {
+        //make this work for virtual paths
+        if (path.startsWith("~/")) {
+            path = umbRequestHelper.convertVirtualToAbsolutePath(path);
+        }
+        return path;
+    }
+
+    var service = {
+        loadedAssets: {},
+
+        _getAssetPromise: function (path) {
+
+            if (this.loadedAssets[path]) {
+                return this.loadedAssets[path];
+            } else {
+                var deferred = $q.defer();
+                this.loadedAssets[path] = { deferred: deferred, state: "new", path: path };
+                return this.loadedAssets[path];
+            }
+        },
         /** 
             Internal method. This is called when the application is loading and the user is already authenticated, or once the user is authenticated.
             There's a few assets the need to be loaded for the application to function but these assets require authentication to load.
@@ -67,7 +86,7 @@ angular.module('umbraco.services')
             //here we need to ensure the required application assets are loaded
             if (initAssetsLoaded === false) {
                 var self = this;
-                self.loadJs(umbRequestHelper.getApiUrl("serverVarsJs", "", ""), $rootScope).then(function() {
+                self.loadJs(umbRequestHelper.getApiUrl("serverVarsJs", "", ""), $rootScope).then(function () {
                     initAssetsLoaded = true;
 
                     //now we need to go get the legacyTreeJs - but this can be done async without waiting.
@@ -96,24 +115,33 @@ angular.module('umbraco.services')
          * @param {Number} timeout in milliseconds
          * @returns {Promise} Promise object which resolves when the file has loaded
          */
-         loadCss : function(path, scope, attributes, timeout){
-             var deferred = $q.defer();
-             var t = timeout || 5000;
-             var a = attributes || undefined;
+        loadCss: function (path, scope, attributes, timeout) {
 
-             yepnope.injectCss(appendRnd(path), function () {
-                 if (!scope) {
-                      deferred.resolve(true);
-                  }else{
-                      angularHelper.safeApply(scope, function () {
-                          deferred.resolve(true);
-                      });
-                  }
-             },a,t);
+            path = convertVirtualPath(path);
 
-             return deferred.promise;
-         },
-        
+            var asset = this._getAssetPromise(path); // $q.defer();
+            var t = timeout || 5000;
+            var a = attributes || undefined;
+
+            if (asset.state === "new") {
+                asset.state = "loading";
+                LazyLoad.css(appendRnd(path), function () {
+                    if (!scope) {
+                        asset.state = "loaded";
+                        asset.deferred.resolve(true);
+                    } else {
+                        asset.state = "loaded";
+                        angularHelper.safeApply(scope, function () {
+                            asset.deferred.resolve(true);
+                        });
+                    }
+                });
+            } else if (asset.state === "loaded") {
+                asset.deferred.resolve(true);
+            }
+            return asset.deferred.promise;
+        },
+
         /**
          * @ngdoc method
          * @name umbraco.services.assetsService#loadJs
@@ -128,23 +156,34 @@ angular.module('umbraco.services')
          * @param {Number} timeout in milliseconds
          * @returns {Promise} Promise object which resolves when the file has loaded
          */
-        loadJs : function(path, scope, attributes, timeout){
-            var deferred = $q.defer();
+        loadJs: function (path, scope, attributes, timeout) {
+
+            path = convertVirtualPath(path);
+
+            var asset = this._getAssetPromise(path); // $q.defer();
             var t = timeout || 5000;
             var a = attributes || undefined;
-            
-            yepnope.injectJs(appendRnd(path), function () {
-              if (!scope) {
-                  deferred.resolve(true);
-              }else{
-                  angularHelper.safeApply(scope, function () {
-                      deferred.resolve(true);
-                  });
-              }
-            },a,t);
 
+            if (asset.state === "new") {
+                asset.state = "loading";
 
-            return deferred.promise;
+                LazyLoad.js(appendRnd(path), function () {
+                    if (!scope) {
+                        asset.state = "loaded";
+                        asset.deferred.resolve(true);
+                    } else {
+                        asset.state = "loaded";
+                        angularHelper.safeApply(scope, function () {
+                            asset.deferred.resolve(true);
+                        });
+                    }
+                });
+
+            } else if (asset.state === "loaded") {
+                asset.deferred.resolve(true);
+            }
+
+            return asset.deferred.promise;
         },
 
         /**
@@ -153,54 +192,79 @@ angular.module('umbraco.services')
          * @methodOf umbraco.services.assetsService
          *
          * @description
-         * Injects a collection of files, this can be a mixed collection of css and js files, the loader will determine how to load them
+         * Injects a collection of files, this can be ONLY js files
          * 
-         * **Warning:** if the collection of files contains a .css file, you will in some cases not receive a resolved promise, it is therefore prefered to use the individual loadCss and loadJs methods
          *
          * @param {Array} pathArray string array of paths to the files to load
          * @param {Scope} scope optional scope to pass into the loader
          * @returns {Promise} Promise object which resolves when all the files has loaded
          */
         load: function (pathArray, scope) {
-            var deferred = $q.defer();
-        
-            var nonEmpty = _.reject(pathArray, function(item) {
+            var promise;
+
+            if (!angular.isArray(pathArray)) {
+                throw "pathArray must be an array";
+            }
+
+            var nonEmpty = _.reject(pathArray, function (item) {
                 return item === undefined || item === "";
             });
 
 
             //don't load anything if there's nothing to load
             if (nonEmpty.length > 0) {
-                yepnope({
-                    load: pathArray,
-                    complete: function() {
+                var promises = [];
+                var assets = [];
 
-                        //if a scope is supplied then we need to make a digest here because
-                        // deferred only executes in a digest. This might be required if we 
-                        // are doing a load script after an http request or some other async call.
+                //compile a list of promises
+                //blocking
+                _.each(nonEmpty, function (path) {
+
+                    path = convertVirtualPath(path);
+
+                    var asset = service._getAssetPromise(path);
+                    //if not previously loaded, add to list of promises
+                    if (asset.state !== "loaded") {
+                        if (asset.state === "new") {
+                            asset.state = "loading";
+                            assets.push(asset);
+                        }
+
+                        //we need to always push to the promises collection to monitor correct 
+                        //execution                        
+                        promises.push(asset.deferred.promise);
+                    }
+                });
+
+
+                //gives a central monitoring of all assets to load
+                promise = $q.all(promises);
+
+                _.each(assets, function (asset) {
+                    LazyLoad.js(appendRnd(asset.path), function () {
+                        asset.state = "loaded";
                         if (!scope) {
-                            deferred.resolve(true);
+                            asset.deferred.resolve(true);
                         }
                         else {
                             angularHelper.safeApply(scope, function () {
-                                deferred.resolve(true);
+                                asset.deferred.resolve(true);
                             });
                         }
-                    }
+                    });
                 });
             }
             else {
-                if (!scope) {
-                    deferred.resolve(true);
-                }
-                else {
-                    angularHelper.safeApply(scope, function () {
-                        deferred.resolve(true);
-                    });
-                }
+                //return and resolve
+                var deferred = $q.defer();
+                promise = deferred.promise;
+                deferred.resolve(true);
             }
 
-            return deferred.promise;
+
+            return promise;
         }
     };
+
+    return service;
 });

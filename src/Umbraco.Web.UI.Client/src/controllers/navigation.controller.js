@@ -3,10 +3,10 @@
  * @ngdoc controller
  * @name Umbraco.NavigationController
  * @function
- * 
+ *
  * @description
  * Handles the section area of the app
- * 
+ *
  * @param {navigationService} navigationService A reference to the navigationService
  */
 function NavigationController($scope, $rootScope, $location, $log, $routeParams, $timeout, appState, navigationService, keyboardService, dialogService, historyService, eventsService, sectionResource, angularHelper) {
@@ -31,6 +31,7 @@ function NavigationController($scope, $rootScope, $location, $log, $routeParams,
     $scope.menuDialogTitle = null;
     $scope.menuActions = [];
     $scope.menuNode = null;
+
     $scope.currentSection = appState.getSectionState("currentSection");
     $scope.showNavigation = appState.getGlobalState("showNavigation");
 
@@ -40,22 +41,23 @@ function NavigationController($scope, $rootScope, $location, $log, $routeParams,
     });
 
     //trigger dialods with a hotkey:
-    //TODO: Unfortunately this will also close the login dialog.
     keyboardService.bind("esc", function () {
         eventsService.emit("app.closeDialogs");
     });
 
     $scope.selectedId = navigationService.currentId;
 
+    var evts = [];
+
     //Listen for global state changes
-    eventsService.on("appState.globalState.changed", function (e, args) {
+    evts.push(eventsService.on("appState.globalState.changed", function(e, args) {
         if (args.key === "showNavigation") {
             $scope.showNavigation = args.value;
         }
-    });
+    }));
 
     //Listen for menu state changes
-    eventsService.on("appState.menuState.changed", function (e, args) {
+    evts.push(eventsService.on("appState.menuState.changed", function(e, args) {
         if (args.key === "showMenuDialog") {
             $scope.showContextMenuDialog = args.value;
         }
@@ -71,10 +73,21 @@ function NavigationController($scope, $rootScope, $location, $log, $routeParams,
         if (args.key === "currentNode") {
             $scope.menuNode = args.value;
         }
-    });
+    }));
 
     //Listen for section state changes
-    eventsService.on("appState.sectionState.changed", function (e, args) {
+    evts.push(eventsService.on("appState.treeState.changed", function(e, args) {
+        var f = args;
+        if (args.value.root && args.value.root.metaData.containsTrees === false) {
+            $rootScope.emptySection = true;
+        }
+        else {
+            $rootScope.emptySection = false;
+        }
+    }));
+
+    //Listen for section state changes
+    evts.push(eventsService.on("appState.sectionState.changed", function(e, args) {
         //section changed
         if (args.key === "currentSection") {
             $scope.currentSection = args.value;
@@ -83,33 +96,30 @@ function NavigationController($scope, $rootScope, $location, $log, $routeParams,
         if (args.key === "showSearchResults") {
             $scope.showSearchResults = args.value;
         }
-    });
+    }));
 
     //This reacts to clicks passed to the body element which emits a global call to close all dialogs
-    eventsService.on("app.closeDialogs", function (event) {
+    evts.push(eventsService.on("app.closeDialogs", function(event) {
         if (appState.getGlobalState("stickyNavigation")) {
             navigationService.hideNavigation();
             //TODO: don't know why we need this? - we are inside of an angular event listener.
             angularHelper.safeApply($scope);
         }
-    });
+    }));
 
     //when a user logs out or timesout
-    eventsService.on("app.notAuthenticated", function () {
+    evts.push(eventsService.on("app.notAuthenticated", function() {
         $scope.authenticated = false;
-    });
+    }));
 
     //when the application is ready and the user is authorized setup the data
-    eventsService.on("app.ready", function (evt, data) {
+    evts.push(eventsService.on("app.ready", function(evt, data) {
         $scope.authenticated = true;
-    });
+    }));
 
     //this reacts to the options item in the tree
     //todo, migrate to nav service
     $scope.searchShowMenu = function (ev, args) {
-        $scope.currentNode = args.node;
-        args.scope = $scope;
-
         //always skip default
         args.skipDefault = true;
         navigationService.showMenu(ev, args);
@@ -128,8 +138,8 @@ function NavigationController($scope, $rootScope, $location, $log, $routeParams,
     $scope.enterTree = function (event) {
         treeActive = true;
     };
-    
-    // Hides navigation tree, with a short delay, is cancelled if the user moves the mouse over the tree again    
+
+    // Hides navigation tree, with a short delay, is cancelled if the user moves the mouse over the tree again
     $scope.leaveTree = function(event) {
         //this is a hack to handle IE touch events which freaks out due to no mouse events so the tree instantly shuts down
         if (!event) {
@@ -144,6 +154,13 @@ function NavigationController($scope, $rootScope, $location, $log, $routeParams,
             }, 300);
         }
     };
+
+    //ensure to unregister from all events!
+    $scope.$on('$destroy', function () {
+        for (var e in evts) {
+            eventsService.unsubscribe(evts[e]);
+        }
+    });
 }
 
 //register it

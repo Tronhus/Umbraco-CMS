@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Umbraco.Core.Events;
 using Umbraco.Core.Models.Rdbms;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.Migrations;
@@ -14,19 +15,9 @@ namespace Umbraco.Web.Strategies.Migrations
     /// This event ensures that upgrades from (configured) versions lower then 6.0.0
     /// have their publish state updated after the database schema has been migrated.
     /// </summary>
-    public class PublishAfterUpgradeToVersionSixth : IApplicationStartupHandler
+    public class PublishAfterUpgradeToVersionSixth : MigrationStartupHander
     {
-        public PublishAfterUpgradeToVersionSixth()
-        {
-            MigrationRunner.Migrated += MigrationRunner_Migrated;
-        }
-
-        public void Unsubscribe()
-        {
-            MigrationRunner.Migrated -= MigrationRunner_Migrated;
-        }
-
-        void MigrationRunner_Migrated(MigrationRunner sender, Core.Events.MigrationEventArgs e)
+        protected override void AfterMigration(MigrationRunner sender, MigrationEventArgs e)
         {
             var target = new Version(6, 0, 0);
             if (e.ConfiguredVersion < target)
@@ -43,9 +34,7 @@ namespace Umbraco.Web.Strategies.Migrations
                     .Where<NodeDto>(x => x.NodeObjectType == new Guid(Constants.ObjectTypes.Document))
                     .Where<NodeDto>(x => x.Path.StartsWith("-1"));
 
-                var uow = PetaPocoUnitOfWorkProvider.CreateUnitOfWork();
-
-                var dtos = uow.Database.Fetch<DocumentDto, ContentVersionDto, ContentDto, NodeDto>(sql);
+                var dtos = e.MigrationContext.Database.Fetch<DocumentDto, ContentVersionDto, ContentDto, NodeDto>(sql);
                 var toUpdate = new List<DocumentDto>();
                 var versionGroup = dtos.GroupBy(x => x.NodeId);
                 foreach (var grp in versionGroup)
@@ -69,17 +58,18 @@ namespace Umbraco.Web.Strategies.Migrations
                 }
 
                 //Commit the updated entries for the cmsDocument table
-                using (var transaction = uow.Database.GetTransaction())
+                using (var transaction = e.MigrationContext.Database.GetTransaction())
                 {
                     //Loop through the toUpdate
                     foreach (var dto in toUpdate)
                     {
-                        uow.Database.Update(dto);
+                        e.MigrationContext.Database.Update(dto);
                     }
 
                     transaction.Complete();
                 }
             }
-        }
+        }      
+        
     }
 }

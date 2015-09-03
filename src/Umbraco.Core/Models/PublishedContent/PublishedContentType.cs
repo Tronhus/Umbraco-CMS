@@ -44,6 +44,11 @@ namespace Umbraco.Core.Models.PublishedContent
             InitializeIndexes();
         }
 
+        // create detached content type - ie does not match anything in the DB
+        internal PublishedContentType(string alias, IEnumerable<PublishedPropertyType> propertyTypes)
+            : this (0, alias, propertyTypes)
+        { }
+
         private void InitializeIndexes()
         {
             for (var i = 0; i < _propertyTypes.Length; i++)
@@ -128,7 +133,7 @@ namespace Umbraco.Core.Models.PublishedContent
         public static PublishedContentType Get(PublishedItemType itemType, string alias)
         {
             var key = string.Format("PublishedContentType_{0}_{1}",
-                itemType == PublishedItemType.Content ? "content" : "media", alias.ToLowerInvariant());
+                itemType.ToString().ToLowerInvariant(), alias.ToLowerInvariant());
 
             var type = ApplicationContext.Current.ApplicationCache.StaticCache.GetCacheItem<PublishedContentType>(key,
                 () => CreatePublishedContentType(itemType, alias));

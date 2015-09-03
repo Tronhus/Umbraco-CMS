@@ -1,20 +1,32 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.Serialization;
 
 namespace Umbraco.Core.Models.EntityBase
 {
     /// <summary>
     /// A base class for use to implement IRememberBeingDirty/ICanBeDirty
     /// </summary>
+    [Serializable]
+    [DataContract(IsReference = true)]
     public abstract class TracksChangesEntityBase : IRememberBeingDirty
     {
+        //TODO: This needs to go on to ICanBeDirty http://issues.umbraco.org/issue/U4-5662
+        public virtual IEnumerable<string> GetDirtyProperties()
+        {
+            return _propertyChangedInfo.Where(x => x.Value).Select(x => x.Key);
+        }
+
+        private bool _changeTrackingEnabled = true;
+
         /// <summary>
         /// Tracks the properties that have changed
         /// </summary>
-        private readonly IDictionary<string, bool> _propertyChangedInfo = new Dictionary<string, bool>();
+        private IDictionary<string, bool> _propertyChangedInfo = new Dictionary<string, bool>();
 
         /// <summary>
         /// Tracks the properties that we're changed before the last commit (or last call to ResetDirtyProperties)
@@ -32,6 +44,9 @@ namespace Umbraco.Core.Models.EntityBase
         /// <param name="propertyInfo">The property info.</param>
         protected virtual void OnPropertyChanged(PropertyInfo propertyInfo)
         {
+            //return if we're not tracking changes
+            if (_changeTrackingEnabled == false) return;
+
             _propertyChangedInfo[propertyInfo.Name] = true;
 
             if (PropertyChanged != null)
@@ -63,7 +78,7 @@ namespace Umbraco.Core.Models.EntityBase
         /// Indicates that the entity had been changed and the changes were committed
         /// </summary>
         /// <returns></returns>
-        public bool WasDirty()
+        public virtual bool WasDirty()
         {
             return _lastPropertyChangedInfo != null && _lastPropertyChangedInfo.Any();
         }
@@ -83,7 +98,9 @@ namespace Umbraco.Core.Models.EntityBase
         /// </summary>
         public void ForgetPreviouslyDirtyProperties()
         {
-            _lastPropertyChangedInfo.Clear();
+            //NOTE: We cannot .Clear() because when we memberwise clone this will be the SAME
+            // instance as the one on the clone, so we need to create a new instance.
+            _lastPropertyChangedInfo = new Dictionary<string, bool>();
         }
 
         /// <summary>
@@ -116,7 +133,25 @@ namespace Umbraco.Core.Models.EntityBase
                 _lastPropertyChangedInfo = _propertyChangedInfo.ToDictionary(v => v.Key, v => v.Value);
             }
 
-            _propertyChangedInfo.Clear();
+            //NOTE: We cannot .Clear() because when we memberwise clone this will be the SAME
+            // instance as the one on the clone, so we need to create a new instance.
+            _propertyChangedInfo = new Dictionary<string, bool>();
+        }
+
+        protected void ResetChangeTrackingCollections()
+        {
+            _propertyChangedInfo = new Dictionary<string, bool>();
+            _lastPropertyChangedInfo = new Dictionary<string, bool>();
+        }
+
+        protected void DisableChangeTracking()
+        {
+            _changeTrackingEnabled = false;
+        }
+
+        protected void EnableChangeTracking()
+        {
+            _changeTrackingEnabled = true;
         }
 
         /// <summary>
@@ -134,14 +169,49 @@ namespace Umbraco.Core.Models.EntityBase
         /// </remarks>
         internal bool SetPropertyValueAndDetectChanges<T>(Func<T, T> setValue, T value, PropertyInfo propertySelector)
         {
+            if ((typeof(T) == typeof(string) == false) && TypeHelper.IsTypeAssignableFrom<IEnumerable>(typeof(T)))
+            {
+                throw new InvalidOperationException("This method does not support IEnumerable instances. For IEnumerable instances a manual custom equality check will be required");
+            }
+
+            return SetPropertyValueAndDetectChanges(setValue, value, propertySelector,
+                new DelegateEqualityComparer<T>(
+                    //Standard Equals comparison
+                    (arg1, arg2) => Equals(arg1, arg2),
+                    arg => arg.GetHashCode()));
+
+        }
+
+        /// <summary>
+        /// Used by inheritors to set the value of properties, this will detect if the property value actually changed and if it did
+        /// it will ensure that the property has a dirty flag set.
+        /// </summary>
+        /// <param name="setValue"></param>
+        /// <param name="value"></param>
+        /// <param name="propertySelector"></param>
+        /// <param name="comparer">The equality comparer to use</param>
+        /// <returns>returns true if the value changed</returns>
+        /// <remarks>
+        /// This is required because we don't want a property to show up as "dirty" if the value is the same. For example, when we 
+        /// save a document type, nearly all properties are flagged as dirty just because we've 'reset' them, but they are all set 
+        /// to the same value, so it's really not dirty.
+        /// </remarks>
+        internal bool SetPropertyValueAndDetectChanges<T>(Func<T, T> setValue, T value, PropertyInfo propertySelector, IEqualityComparer<T> comparer)
+        {
             var initVal = value;
             var newVal = setValue(value);
-            if (!Equals(initVal, newVal))
+
+            //don't track changes, just set the value (above)
+            if (_changeTrackingEnabled == false) return false;
+
+            if (comparer.Equals(initVal, newVal) == false)
             {
                 OnPropertyChanged(propertySelector);
                 return true;
             }
             return false;
         }
+
+
     }
 }

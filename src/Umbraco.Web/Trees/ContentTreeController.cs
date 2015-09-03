@@ -64,24 +64,7 @@ namespace Umbraco.Web.Trees
         {
             get { return Security.CurrentUser.StartContentId; }
         }
-
-        /// <summary>
-        /// Gets the tree nodes for the given id
-        /// </summary>
-        /// <param name="id"></param>
-        /// <param name="queryStrings"></param>
-        /// <returns></returns>
-        /// <remarks>
-        /// If the content item is a container node then we will not return anything
-        /// </remarks>
-        protected override TreeNodeCollection PerformGetTreeNodes(string id, FormDataCollection queryStrings)
-        {
-            var nodes = new TreeNodeCollection();
-            var entities = GetChildEntities(id);
-            nodes.AddRange(entities.Select(entity => GetSingleTreeNode(entity, id, queryStrings)).Where(node => node != null));            
-            return nodes;
-        }
-
+        
         /// <summary>
         /// Creates a tree node for a content item based on an UmbracoEntity
         /// </summary>
@@ -111,7 +94,11 @@ namespace Umbraco.Web.Trees
                 node.AdditionalData.Add("contentType", entity.ContentTypeAlias);
 
                 if (isContainer)
+                {
+                    node.AdditionalData.Add("isContainer", true);
                     node.SetContainerStyle();
+                }
+                    
 
                 if (entity.IsPublished == false)
                     node.SetNotPublishedStyle();
@@ -119,7 +106,7 @@ namespace Umbraco.Web.Trees
                 if (entity.HasPendingChanges)
                     node.SetHasUnpublishedVersionStyle();
 
-                if (Access.IsProtected(e.Id, e.Path))
+                if (Services.PublicAccessService.IsProtected(e.Path))
                     node.SetProtectedStyle();
 
                 return node;
@@ -190,6 +177,7 @@ namespace Umbraco.Web.Trees
             if (item.Path.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries).Contains(RecycleBinId.ToInvariantString()))
             {
                 nodeMenu.DefaultMenuAlias = null;
+                nodeMenu.Items.Insert(2, new MenuItem(ActionRestore.Instance, ui.Text("actions", ActionRestore.Instance.Alias)));
             }
             else
             {

@@ -13,7 +13,7 @@ body {
   padding: 0;
   height: 100%;
   width: 100%;
-  
+
   font-family: @baseFontFamily;
   font-size: @baseFontSize;
   line-height: @baseLineHeight;
@@ -109,7 +109,7 @@ body {
   z-index: 100;
   background: @white;
   height: 100%;
-   
+
 }
 
 .navigation-inner-container{
@@ -119,7 +119,8 @@ body {
     left: 0px;
     right: 0px;
     padding-top: 100px;
-    border-right: 1px solid @grayLight;  
+    border-right: 1px solid @grayLight;
+    z-index: 100;
 }
 
 #dialog {
@@ -156,7 +157,7 @@ body {
 #speechbubble {
   z-index: 1000;
   position: absolute;
-  bottom: 40px;
+  bottom: 100px;
   left: 0;
   right: 0;
   border-bottom: none;
@@ -167,8 +168,102 @@ body {
   border-radius: 0;
 }
 
+.ui-resizable-e { 
+    cursor: e-resize; 
+    width: 4px; 
+    right: -5px; 
+    top: 0; 
+    bottom: 0; 
+    background-color: @grayLighter;
+    border: solid 1px @grayLight;
+    position:absolute;
+    z-index:9999 !important;
+
+}
+
 @media (min-width: 1101px) {
   #contentwrapper {left: 440px;}
   #speechbubble {left: 360px;}
 }
 
+//empty section modification
+.emptySection #contentwrapper {left: 80px;}
+.emptySection #speechbubble {left: 0;}
+.emptySection #navigation {display: none}
+
+.login-only #speechbubble {
+    z-index: 10000;
+    left: 0 !important;
+}
+.login-only #speechbubble ul {
+    padding-left:20px
+}
+
+
+
+@media (max-width: 767px) {
+    
+    // make leftcolumn smaller on tablets
+    #leftcolumn {
+      width: 60px;
+    }
+    #applications ul.sections {
+        width: 60px;
+    }
+    ul.sections.sections-tray {
+        width: 60px;
+    }
+    #applications-tray {
+        left: 60px;
+    }
+    #navigation {
+        left: 60px;
+    }
+    #contentwrapper, #contentcolumn {
+        left: 30px;
+    }
+    #umbracoMainPageBody .umb-modal-left.fade.in {
+      margin-left: 60px;
+    }
+}
+
+
+
+@media (max-width: 500px) {
+    
+    // make leftcolumn smaller on mobiles
+    #leftcolumn {
+      width: 40px;
+    }
+    #applications ul.sections {
+        width: 40px;
+    }
+    ul.sections li [class^="icon-"]:before {
+        font-size: 25px!important;
+    }
+    #applications ul.sections li.avatar a img  {
+        width: 25px;
+    }
+    ul.sections a span {
+        display:none !important;
+    }
+    #applications ul.sections-tray {
+        width: 40px;
+    }
+    ul.sections.sections-tray {
+        width: 40px;
+    }
+    #applications-tray {
+        left: 40px;
+    }
+    #navigation {
+        left: 40px;
+    }
+    #contentwrapper, #contentcolumn {
+        left: 20px;
+    }
+    #umbracoMainPageBody .umb-modal-left.fade.in {
+        margin-left: 40px;
+        width: 85%!important;
+    }
+}

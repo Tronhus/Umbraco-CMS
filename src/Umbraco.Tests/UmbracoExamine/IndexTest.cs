@@ -53,7 +53,7 @@ namespace Umbraco.Tests.UmbracoExamine
 		public void Index_Move_Media_From_Non_Indexable_To_Indexable_ParentID()
 		{
 			//change parent id to 1116
-			var existingCriteria = ((IndexCriteria)_indexer.IndexerData);
+			var existingCriteria = _indexer.IndexerData;
 			_indexer.IndexerData = new IndexCriteria(existingCriteria.StandardFields, existingCriteria.UserFields, existingCriteria.IncludeNodeTypes, existingCriteria.ExcludeNodeTypes,
 				1116);
 			
@@ -110,7 +110,7 @@ namespace Umbraco.Tests.UmbracoExamine
 			_indexer.ReIndexNode(node, IndexTypes.Media);
 
 			//change the parent node id to be the one it used to exist under
-			var existingCriteria = ((IndexCriteria)_indexer.IndexerData);
+			var existingCriteria = _indexer.IndexerData;
 			_indexer.IndexerData = new IndexCriteria(existingCriteria.StandardFields, existingCriteria.UserFields, existingCriteria.IncludeNodeTypes, existingCriteria.ExcludeNodeTypes,
 				2222);
 
@@ -142,12 +142,15 @@ namespace Umbraco.Tests.UmbracoExamine
 		{
 			var s = (IndexSearcher)_searcher.GetSearcher();
 
+            
+
 			//first delete all 'Content' (not media). This is done by directly manipulating the index with the Lucene API, not examine!
-			var r = IndexReader.Open(s.GetIndexReader().Directory(), false);
+			
 			var contentTerm = new Term(LuceneIndexer.IndexTypeFieldName, IndexTypes.Content);
-			var delCount = r.DeleteDocuments(contentTerm);
-			r.Commit();
-			r.Close();
+		    var writer = _indexer.GetIndexWriter();
+            writer.DeleteDocuments(contentTerm);
+            writer.Commit();
+			
 
 			//make sure the content is gone. This is done with lucene APIs, not examine!
 			var collector = new AllHitsCollector(false, true);

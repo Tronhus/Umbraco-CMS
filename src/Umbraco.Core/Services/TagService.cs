@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Generic;
+using Umbraco.Core.Events;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.Querying;
@@ -7,118 +10,241 @@ using Umbraco.Core.Persistence.UnitOfWork;
 namespace Umbraco.Core.Services
 {
     /// <summary>
-    /// Tag service to query for tags in the tags db table. The tags returned are only relavent for published content & saved media or members 
+    /// Tag service to query for tags in the tags db table. The tags returned are only relevant for published content & saved media or members 
     /// </summary>
     /// <remarks>
     /// If there is unpublished content with tags, those tags will not be contained
     /// </remarks>
-    public class TagService : ITagService
+    public class TagService : RepositoryService, ITagService
     {
-
-        private readonly RepositoryFactory _repositoryFactory;
-        private readonly IDatabaseUnitOfWorkProvider _uowProvider;
-
-        public TagService()
-            : this(new RepositoryFactory())
-        {}
-
-        public TagService(RepositoryFactory repositoryFactory)
-            : this(new PetaPocoUnitOfWorkProvider(), repositoryFactory)
+      
+        public TagService(IDatabaseUnitOfWorkProvider provider, RepositoryFactory repositoryFactory, ILogger logger, IEventMessagesFactory eventMessagesFactory)
+            : base(provider, repositoryFactory, logger, eventMessagesFactory)
         {
         }
 
-        public TagService(IDatabaseUnitOfWorkProvider provider)
-            : this(provider, new RepositoryFactory())
+        public TaggedEntity GetTaggedEntityById(int id)
         {
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetTaggedEntityById(id);
+            } 
         }
 
-        public TagService(IDatabaseUnitOfWorkProvider provider, RepositoryFactory repositoryFactory)
+        public TaggedEntity GetTaggedEntityByKey(Guid key)
         {
-            _repositoryFactory = repositoryFactory;
-            _uowProvider = provider;
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetTaggedEntityByKey(key);
+            } 
         }
 
         /// <summary>
-        /// Get every tag stored in the database (with optional group)
+        /// Gets tagged Content by a specific 'Tag Group'.
         /// </summary>
-        public IEnumerable<ITag> GetAllTags(string group = null)
+        /// <remarks>The <see cref="TaggedEntity"/> contains the Id and Tags of the Content, not the actual Content item.</remarks>
+        /// <param name="tagGroup">Name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="TaggedEntity"/></returns>
+        public IEnumerable<TaggedEntity> GetTaggedContentByTagGroup(string tagGroup)
         {
-            using (var repository = _repositoryFactory.CreateTagsRepository(_uowProvider.GetUnitOfWork()))
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
             {
-                if (group.IsNullOrWhiteSpace())
-                {
-                    return repository.GetAll();
-                }
+                return repository.GetTaggedEntitiesByTagGroup(TaggableObjectTypes.Content, tagGroup);
+            }         
+        }
 
-                var query = Query<ITag>.Builder.Where(x => x.Group == group);
-                var definitions = repository.GetByQuery(query);
-                return definitions;
+        /// <summary>
+        /// Gets tagged Content by a specific 'Tag' and optional 'Tag Group'.
+        /// </summary>
+        /// <remarks>The <see cref="TaggedEntity"/> contains the Id and Tags of the Content, not the actual Content item.</remarks>
+        /// <param name="tag">Tag</param>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="TaggedEntity"/></returns>
+        public IEnumerable<TaggedEntity> GetTaggedContentByTag(string tag, string tagGroup = null)
+        {
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetTaggedEntitiesByTag(TaggableObjectTypes.Content, tag, tagGroup);
+            }         
+        }
+
+        /// <summary>
+        /// Gets tagged Media by a specific 'Tag Group'.
+        /// </summary>
+        /// <remarks>The <see cref="TaggedEntity"/> contains the Id and Tags of the Media, not the actual Media item.</remarks>
+        /// <param name="tagGroup">Name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="TaggedEntity"/></returns>
+        public IEnumerable<TaggedEntity> GetTaggedMediaByTagGroup(string tagGroup)
+        {
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetTaggedEntitiesByTagGroup(TaggableObjectTypes.Media, tagGroup);
+            }    
+        }
+
+        /// <summary>
+        /// Gets tagged Media by a specific 'Tag' and optional 'Tag Group'.
+        /// </summary>
+        /// <remarks>The <see cref="TaggedEntity"/> contains the Id and Tags of the Media, not the actual Media item.</remarks>
+        /// <param name="tag">Tag</param>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="TaggedEntity"/></returns>
+        public IEnumerable<TaggedEntity> GetTaggedMediaByTag(string tag, string tagGroup = null)
+        {
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetTaggedEntitiesByTag(TaggableObjectTypes.Media, tag, tagGroup);
+            }    
+        }
+
+        /// <summary>
+        /// Gets tagged Members by a specific 'Tag Group'.
+        /// </summary>
+        /// <remarks>The <see cref="TaggedEntity"/> contains the Id and Tags of the Member, not the actual Member item.</remarks>
+        /// <param name="tagGroup">Name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="TaggedEntity"/></returns>
+        public IEnumerable<TaggedEntity> GetTaggedMembersByTagGroup(string tagGroup)
+        {
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetTaggedEntitiesByTagGroup(TaggableObjectTypes.Member, tagGroup);
+            }    
+        }
+
+        /// <summary>
+        /// Gets tagged Members by a specific 'Tag' and optional 'Tag Group'.
+        /// </summary>
+        /// <remarks>The <see cref="TaggedEntity"/> contains the Id and Tags of the Member, not the actual Member item.</remarks>
+        /// <param name="tag">Tag</param>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="TaggedEntity"/></returns>
+        public IEnumerable<TaggedEntity> GetTaggedMembersByTag(string tag, string tagGroup = null)
+        {
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetTaggedEntitiesByTag(TaggableObjectTypes.Member, tag, tagGroup);
+            }    
+        }
+
+        /// <summary>
+        /// Gets every tag stored in the database
+        /// </summary>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="ITag"/></returns>
+        public IEnumerable<ITag> GetAllTags(string tagGroup = null)
+        {
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetTagsForEntityType(TaggableObjectTypes.All, tagGroup);
             }  
         }
 
         /// <summary>
-        /// Get all tags for content items (with optional group)
+        /// Gets all tags for content items
         /// </summary>
-        /// <param name="group"></param>
-        /// <returns></returns>
-        public IEnumerable<ITag> GetAllContentTags(string group = null)
+        /// <remarks>Use the optional tagGroup parameter to limit the 
+        /// result to a specific 'Tag Group'.</remarks>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="ITag"/></returns>
+        public IEnumerable<ITag> GetAllContentTags(string tagGroup = null)
         {
-            using (var repository = _repositoryFactory.CreateTagsRepository(_uowProvider.GetUnitOfWork()))
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
             {
-                return repository.GetTagsForEntityType(TaggableObjectTypes.Content, group);
+                return repository.GetTagsForEntityType(TaggableObjectTypes.Content, tagGroup);
             }
         }
 
         /// <summary>
-        /// Get all tags for media items (with optional group)
+        /// Gets all tags for media items
         /// </summary>
-        /// <param name="group"></param>
-        /// <returns></returns>
-        public IEnumerable<ITag> GetAllMediaTags(string group = null)
+        /// <remarks>Use the optional tagGroup parameter to limit the 
+        /// result to a specific 'Tag Group'.</remarks>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="ITag"/></returns>
+        public IEnumerable<ITag> GetAllMediaTags(string tagGroup = null)
         {
-            using (var repository = _repositoryFactory.CreateTagsRepository(_uowProvider.GetUnitOfWork()))
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
             {
-                return repository.GetTagsForEntityType(TaggableObjectTypes.Media, group);
+                return repository.GetTagsForEntityType(TaggableObjectTypes.Media, tagGroup);
             }
         }
 
         /// <summary>
-        /// Get all tags for member items (with optional group)
+        /// Gets all tags for member items
         /// </summary>
-        /// <param name="group"></param>
-        /// <returns></returns>
-        public IEnumerable<ITag> GetAllMemberTags(string group = null)
+        /// <remarks>Use the optional tagGroup parameter to limit the 
+        /// result to a specific 'Tag Group'.</remarks>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="ITag"/></returns>
+        public IEnumerable<ITag> GetAllMemberTags(string tagGroup = null)
         {
-            using (var repository = _repositoryFactory.CreateTagsRepository(_uowProvider.GetUnitOfWork()))
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
             {
-                return repository.GetTagsForEntityType(TaggableObjectTypes.Member, group);
+                return repository.GetTagsForEntityType(TaggableObjectTypes.Member, tagGroup);
             }
         }
 
         /// <summary>
-        /// Returns all tags attached to a property by entity id
+        /// Gets all tags attached to a property by entity id
         /// </summary>
-        /// <param name="contentId"></param>
-        /// <param name="propertyTypeAlias"></param>
-        /// <param name="tagGroup"></param>
-        /// <returns></returns>
+        /// <remarks>Use the optional tagGroup parameter to limit the 
+        /// result to a specific 'Tag Group'.</remarks>
+        /// <param name="contentId">The content item id to get tags for</param>
+        /// <param name="propertyTypeAlias">Property type alias</param>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="ITag"/></returns>
         public IEnumerable<ITag> GetTagsForProperty(int contentId, string propertyTypeAlias, string tagGroup = null)
         {
-            using (var repository = _repositoryFactory.CreateTagsRepository(_uowProvider.GetUnitOfWork()))
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
             {
                 return repository.GetTagsForProperty(contentId, propertyTypeAlias, tagGroup);
             }
         }
 
         /// <summary>
-        /// Returns all tags attached to an entity (content, media or member) by entity id
+        /// Gets all tags attached to an entity (content, media or member) by entity id
         /// </summary>
-        /// <param name="contentId"></param>
-        /// <param name="tagGroup"></param>
-        /// <returns></returns>
+        /// <remarks>Use the optional tagGroup parameter to limit the 
+        /// result to a specific 'Tag Group'.</remarks>
+        /// <param name="contentId">The content item id to get tags for</param>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="ITag"/></returns>
         public IEnumerable<ITag> GetTagsForEntity(int contentId, string tagGroup = null)
         {
-            using (var repository = _repositoryFactory.CreateTagsRepository(_uowProvider.GetUnitOfWork()))
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetTagsForEntity(contentId, tagGroup);
+            }
+        }
+
+        /// <summary>
+        /// Gets all tags attached to a property by entity id
+        /// </summary>
+        /// <remarks>Use the optional tagGroup parameter to limit the 
+        /// result to a specific 'Tag Group'.</remarks>
+        /// <param name="contentId">The content item id to get tags for</param>
+        /// <param name="propertyTypeAlias">Property type alias</param>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="ITag"/></returns>
+        public IEnumerable<ITag> GetTagsForProperty(Guid contentId, string propertyTypeAlias, string tagGroup = null)
+        {
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
+            {
+                return repository.GetTagsForProperty(contentId, propertyTypeAlias, tagGroup);
+            }
+        }
+
+        /// <summary>
+        /// Gets all tags attached to an entity (content, media or member) by entity id
+        /// </summary>
+        /// <remarks>Use the optional tagGroup parameter to limit the 
+        /// result to a specific 'Tag Group'.</remarks>
+        /// <param name="contentId">The content item id to get tags for</param>
+        /// <param name="tagGroup">Optional name of the 'Tag Group'</param>
+        /// <returns>An enumerable list of <see cref="ITag"/></returns>
+        public IEnumerable<ITag> GetTagsForEntity(Guid contentId, string tagGroup = null)
+        {
+            using (var repository = RepositoryFactory.CreateTagRepository(UowProvider.GetUnitOfWork()))
             {
                 return repository.GetTagsForEntity(contentId, tagGroup);
             }

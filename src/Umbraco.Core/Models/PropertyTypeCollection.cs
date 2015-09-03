@@ -5,6 +5,7 @@ using System.Collections.Specialized;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
+using Umbraco.Core.Models.EntityBase;
 
 namespace Umbraco.Core.Models
 {
@@ -13,9 +14,12 @@ namespace Umbraco.Core.Models
     /// </summary>
     [Serializable]
     [DataContract]
-    public class PropertyTypeCollection : KeyedCollection<string, PropertyType>, INotifyCollectionChanged
+    public class PropertyTypeCollection : KeyedCollection<string, PropertyType>, INotifyCollectionChanged, IDeepCloneable
     {
+        [IgnoreDataMember]
         private readonly ReaderWriterLockSlim _addLocker = new ReaderWriterLockSlim();
+
+        [IgnoreDataMember]
         internal Action OnAdd;
 
         internal PropertyTypeCollection()
@@ -79,6 +83,14 @@ namespace Umbraco.Core.Models
                         return;
                     }
                 }
+
+                //check if the item's sort order is already in use				
+                if (this.Any(x => x.SortOrder == item.SortOrder))
+                {
+                    //make it the next iteration
+                    item.SortOrder = this.Max(x => x.SortOrder) + 1;
+                }
+
                 base.Add(item);
                 OnAdd.IfNotNull(x => x.Invoke());//Could this not be replaced by a Mandate/Contract for ensuring item is not null
 
@@ -130,6 +142,16 @@ namespace Umbraco.Core.Models
             {
                 CollectionChanged(this, args);
             }
+        }
+
+        public object DeepClone()
+        {
+            var newGroup = new PropertyTypeCollection();
+            foreach (var p in this)
+            {
+                newGroup.Add((PropertyType)p.DeepClone());
+            }
+            return newGroup;
         }
     }
 }

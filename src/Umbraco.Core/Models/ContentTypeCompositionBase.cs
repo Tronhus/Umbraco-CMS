@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
+using Umbraco.Core.Exceptions;
 
 namespace Umbraco.Core.Models
 {
@@ -13,7 +14,7 @@ namespace Umbraco.Core.Models
     [DataContract(IsReference = true)]
     public abstract class ContentTypeCompositionBase : ContentTypeBase, IContentTypeComposition
     {
-        private readonly List<IContentTypeComposition> _contentTypeComposition = new List<IContentTypeComposition>();
+        private List<IContentTypeComposition> _contentTypeComposition = new List<IContentTypeComposition>();
         internal List<int> RemovedContentTypeKeyTracker = new List<int>();
 
         protected ContentTypeCompositionBase(int parentId) : base(parentId)
@@ -21,10 +22,15 @@ namespace Umbraco.Core.Models
         }
 
         protected ContentTypeCompositionBase(IContentTypeComposition parent)
-            : base(parent)
+            : this(parent, null)
 		{
-		    AddContentType(parent);
 		}
+
+        protected ContentTypeCompositionBase(IContentTypeComposition parent, string alias)
+            : base(parent, alias)
+        {
+            AddContentType(parent);
+        }
 
         private static readonly PropertyInfo ContentTypeCompositionSelector =
             ExpressionHelper.GetPropertyInfo<ContentTypeCompositionBase, IEnumerable<IContentTypeComposition>>(
@@ -75,8 +81,27 @@ namespace Umbraco.Core.Models
             if (contentType.ContentTypeComposition.Any(x => x.CompositionAliases().Any(ContentTypeCompositionExists)))
                 return false;
 
+            if (string.IsNullOrEmpty(Alias) == false && Alias.Equals(contentType.Alias))
+                return false;
+
             if (ContentTypeCompositionExists(contentType.Alias) == false)
             {
+                //Before we actually go ahead and add the ContentType as a Composition we ensure that we don't
+                //end up with duplicate PropertyType aliases - in which case we throw an exception.
+                var conflictingPropertyTypeAliases = CompositionPropertyTypes.SelectMany(
+                    x => contentType.CompositionPropertyTypes
+                        .Where(y => y.Alias.Equals(x.Alias, StringComparison.InvariantCultureIgnoreCase))
+                        .Select(p => p.Alias)).ToList();
+
+                if (conflictingPropertyTypeAliases.Any())
+                    throw new InvalidCompositionException
+                          {
+                              AddedCompositionAlias = contentType.Alias,
+                              ContentTypeAlias = Alias,
+                              PropertyTypeAlias =
+                                  string.Join(", ", conflictingPropertyTypeAliases)
+                          };
+
                 _contentTypeComposition.Add(contentType);
                 OnPropertyChanged(ContentTypeCompositionSelector);
                 return true;
@@ -93,8 +118,17 @@ namespace Umbraco.Core.Models
         {
             if (ContentTypeCompositionExists(alias))
             {
-                var contentTypeComposition = ContentTypeComposition.First(x => x.Alias == alias);
+                var contentTypeComposition = ContentTypeComposition.FirstOrDefault(x => x.Alias == alias);
+                if (contentTypeComposition == null)//You can't remove a composition from another composition
+                    return false;
+
                 RemovedContentTypeKeyTracker.Add(contentTypeComposition.Id);
+                
+                //If the ContentType we are removing has Compositions of its own these needs to be removed as well
+                var compositionIdsToRemove = contentTypeComposition.CompositionIds().ToList();
+                if(compositionIdsToRemove.Any())
+                    RemovedContentTypeKeyTracker.AddRange(compositionIdsToRemove);
+
                 OnPropertyChanged(ContentTypeCompositionSelector);
                 return _contentTypeComposition.Remove(contentTypeComposition);
             }
@@ -164,6 +198,11 @@ namespace Umbraco.Core.Models
         /// <returns>Returns <c>True</c> if PropertyType was added, otherwise <c>False</c></returns>
         public override bool AddPropertyType(PropertyType propertyType, string propertyGroupName)
         {
+            if (propertyType.HasIdentity == false)
+            {
+                propertyType.Key = Guid.NewGuid();
+            }
+
             if (PropertyTypeExists(propertyType.Alias) == false)
             {
                 if (PropertyGroups.Contains(propertyGroupName))
@@ -216,6 +255,22 @@ namespace Umbraco.Core.Models
             return ContentTypeComposition
                 .Select(x => x.Id)
                 .Union(ContentTypeComposition.SelectMany(x => x.CompositionIds()));
+        }
+
+        public override object DeepClone()
+        {
+            var clone = (ContentTypeCompositionBase)base.DeepClone();
+            //turn off change tracking
+            clone.DisableChangeTracking();
+            //need to manually assign since this is an internal field and will not be automatically mapped
+            clone.RemovedContentTypeKeyTracker = new List<int>();
+            clone._contentTypeComposition = ContentTypeComposition.Select(x => (IContentTypeComposition)x.DeepClone()).ToList();
+            //this shouldn't really be needed since we're not tracking
+            clone.ResetDirtyProperties(false);
+            //re-enable tracking
+            clone.EnableChangeTracking();
+
+            return clone;
         }
     }
 }

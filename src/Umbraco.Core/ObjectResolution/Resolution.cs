@@ -63,6 +63,11 @@ namespace Umbraco.Core.ObjectResolution
 			}
 		}
 
+        // NOTE - the ugly code below exists only because of umbraco.BusinessLogic.Actions.Action.ReRegisterActionsAndHandlers
+        // which wants to re-register actions and handlers instead of properly restarting the application. Don't even think
+        // about using it for anything else. Also, while the backdoor is open, the resolution system is locked so nothing
+        // can work properly => deadlocks. Therefore, open the backdoor, do resolution changes EXCLUSIVELY, and close the door!
+
         /// <summary>
         /// Returns a disposable object that reprents dirty access to temporarily unfrozen resolution configuration.
         /// </summary>
@@ -107,7 +112,7 @@ namespace Umbraco.Core.ObjectResolution
 		/// <exception cref="InvalidOperationException">resolution is already frozen.</exception>
 		public static void Freeze()
 		{
-            LogHelper.Debug(typeof(Resolution), "Freezing resolution");
+            LogHelper.Debug(typeof (Resolution), "Freezing resolution");
 
 		    using (new WriteLock(ConfigurationLock))
 		    {
@@ -116,9 +121,20 @@ namespace Umbraco.Core.ObjectResolution
 
                 _isFrozen = true;
             }
-			
-            if (Frozen != null)
-				Frozen(null, null);
+
+            LogHelper.Debug(typeof(Resolution), "Resolution is frozen");
+
+		    if (Frozen == null) return;
+
+		    try
+		    {
+		        Frozen(null, null);
+		    }
+		    catch (Exception e)
+		    {
+		        LogHelper.Error(typeof (Resolution), "Exception in Frozen event handler.", e);
+		        throw;
+		    }
 		}
         
         /// <summary>

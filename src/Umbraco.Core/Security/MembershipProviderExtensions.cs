@@ -13,21 +13,21 @@ using Umbraco.Core.Security;
 
 namespace Umbraco.Core.Security
 {
-    internal static class MembershipProviderExtensions
+    public static class MembershipProviderExtensions
     {
-        public static MembershipUserCollection FindUsersByName(this MembershipProvider provider, string usernameToMatch)
+        internal static MembershipUserCollection FindUsersByName(this MembershipProvider provider, string usernameToMatch)
         {
             int totalRecords = 0;
             return provider.FindUsersByName(usernameToMatch, 0, int.MaxValue, out totalRecords);
         }
 
-        public static MembershipUserCollection FindUsersByEmail(this MembershipProvider provider, string emailToMatch)
+        internal static MembershipUserCollection FindUsersByEmail(this MembershipProvider provider, string emailToMatch)
         {
             int totalRecords = 0;
             return provider.FindUsersByEmail(emailToMatch, 0, int.MaxValue, out totalRecords);
         }
 
-        public static MembershipUser CreateUser(this MembershipProvider provider, string username, string password, string email)
+        internal static MembershipUser CreateUser(this MembershipProvider provider, string username, string password, string email)
         {
             MembershipCreateStatus status;
             var user = provider.CreateUser(username, password, email, null, null, true, null, out status);
@@ -62,10 +62,30 @@ namespace Umbraco.Core.Security
             return Membership.Providers[UmbracoConfig.For.UmbracoSettings().Providers.DefaultBackOfficeUserProvider];
         }
 
-        public static MembershipUser GetCurrentUser(this MembershipProvider membershipProvider)
+        /// <summary>
+        /// Returns the currently logged in MembershipUser and flags them as being online - use sparingly (i.e. login)
+        /// </summary>
+        /// <param name="membershipProvider"></param>
+        /// <returns></returns>
+        public static MembershipUser GetCurrentUserOnline(this MembershipProvider membershipProvider)
         {
             var username = membershipProvider.GetCurrentUserName();
-            return membershipProvider.GetUser(username, true);
+            return username.IsNullOrWhiteSpace()
+                ? null
+                : membershipProvider.GetUser(username, true);
+        }
+
+        /// <summary>
+        /// Returns the currently logged in MembershipUser
+        /// </summary>
+        /// <param name="membershipProvider"></param>
+        /// <returns></returns>
+        internal static MembershipUser GetCurrentUser(this MembershipProvider membershipProvider)
+        {
+            var username = membershipProvider.GetCurrentUserName();
+            return username.IsNullOrWhiteSpace()
+                ? null
+                : membershipProvider.GetUser(username, false);
         }
 
         /// <summary>
@@ -73,12 +93,12 @@ namespace Umbraco.Core.Security
         /// </summary>
         /// <param name="membershipProvider"></param>
         /// <returns></returns>
-        public static string GetCurrentUserName(this MembershipProvider membershipProvider)
+        internal static string GetCurrentUserName(this MembershipProvider membershipProvider)
         {
             if (HostingEnvironment.IsHosted)
             {
                 HttpContext current = HttpContext.Current;
-                if (current != null)
+                if (current != null && current.User != null && current.User.Identity != null)
                     return current.User.Identity.Name;
             }
             IPrincipal currentPrincipal = Thread.CurrentPrincipal;

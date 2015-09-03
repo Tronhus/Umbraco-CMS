@@ -4,6 +4,7 @@ using System.Configuration.Provider;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Web;
 using System.Web.Configuration;
 using System.Web.Hosting;
 using System.Web.Security;
@@ -16,6 +17,19 @@ namespace Umbraco.Core.Security
     /// </summary>
     public abstract class MembershipProviderBase : MembershipProvider
     {
+
+        public string HashPasswordForStorage(string password)
+        {
+            string salt;
+            var hashed = EncryptOrHashNewPassword(password, out salt);
+            return FormatPasswordForStorage(hashed, salt);
+        }
+
+        public bool VerifyPassword(string password, string hashedPassword)
+        {
+            return CheckPassword(password, hashedPassword);
+        }
+
         /// <summary>
         /// Providers can override this setting, default is 7
         /// </summary>
@@ -291,7 +305,7 @@ namespace Umbraco.Core.Security
         /// <remarks>
         /// Checks to ensure the AllowManuallyChangingPassword rule is adhered to
         /// </remarks>       
-        public sealed override bool ChangePassword(string username, string oldPassword, string newPassword)
+        public override bool ChangePassword(string username, string oldPassword, string newPassword)
         {
             if (oldPassword.IsNullOrWhiteSpace() && AllowManuallyChangingPassword == false)
             {
@@ -388,7 +402,7 @@ namespace Umbraco.Core.Security
         /// <remarks>
         /// Ensures the ValidatingPassword event is executed before executing PerformCreateUser and performs basic membership provider validation of values.
         /// </remarks>
-        public sealed override MembershipUser CreateUser(string username, string password, string email, string passwordQuestion, string passwordAnswer, bool isApproved, object providerUserKey, out MembershipCreateStatus status)
+        public override MembershipUser CreateUser(string username, string password, string email, string passwordQuestion, string passwordAnswer, bool isApproved, object providerUserKey, out MembershipCreateStatus status)
         {
             var valStatus = ValidateNewUser(username, password, email, passwordQuestion, passwordAnswer, isApproved, providerUserKey);
             if (valStatus != MembershipCreateStatus.Success)
@@ -476,7 +490,7 @@ namespace Umbraco.Core.Security
         /// <param name="username"></param>
         /// <param name="answer"></param>
         /// <returns></returns>
-        public sealed override string GetPassword(string username, string answer)
+        public override string GetPassword(string username, string answer)
         {
             if (EnablePasswordRetrieval == false)
                 throw new ProviderException("Password Retrieval Not Enabled.");
@@ -495,7 +509,7 @@ namespace Umbraco.Core.Security
         /// <returns></returns>
         protected abstract string PerformGetPassword(string username, string answer);
 
-        public sealed override string ResetPassword(string username, string answer)
+        public override string ResetPassword(string username, string answer)
         {
             if (EnablePasswordReset == false)
             {
@@ -891,6 +905,16 @@ namespace Umbraco.Core.Security
             sb.AppendLine("_requiresQuestionAndAnswer=" + _requiresQuestionAndAnswer);
             sb.AppendLine("_requiresUniqueEmail=" + _requiresUniqueEmail);
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Returns the current request IP address for logging if there is one
+        /// </summary>
+        /// <returns></returns>
+        protected string GetCurrentRequestIpAddress()
+        {
+            var httpContext = HttpContext.Current == null ? (HttpContextBase) null : new HttpContextWrapper(HttpContext.Current);
+            return httpContext.GetCurrentRequestIpAddress();
         }
 
     }

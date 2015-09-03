@@ -12,6 +12,7 @@ using Umbraco.Core.IO;
 using umbraco.cms.businesslogic.macro;
 using Umbraco.Core.Models;
 using umbraco.interfaces;
+using Umbraco.Web.Models;
 using Umbraco.Web.Mvc;
 using Umbraco.Core;
 using System.Web.Mvc.Html;
@@ -101,8 +102,15 @@ namespace Umbraco.Web.Macros
 
         public string Execute(MacroModel macro, INode node)
         {
+            if (node == null) return string.Empty;
+
             var umbCtx = _getUmbracoContext();
-            return Execute(macro, umbCtx.ContentCache.GetById(node.Id));
+            //NOTE: This is a bit of a nasty hack to check if the INode is actually already based on an IPublishedContent 
+            // (will be the case when using LegacyConvertedNode )
+            return Execute(macro,
+                (node is IPublishedContent)
+                    ? (IPublishedContent)node
+                    : umbCtx.ContentCache.GetById(node.Id));
         }
 
         public string Execute(MacroModel macro, IPublishedContent content)
@@ -132,12 +140,11 @@ namespace Umbraco.Web.Macros
             string output;
             using (var controller = new PartialViewMacroController(macro, content))
             {
-				//bubble up the model state from the main view context to our custom controller.
-				//when merging we'll create a new dictionary, otherwise you might run into an enumeration error
-				// caused from ModelStateDictionary
-				controller.ModelState.Merge(new ModelStateDictionary(viewContext.ViewData.ModelState));
+                controller.ViewData = viewContext.ViewData;
+                
 				controller.ControllerContext = new ControllerContext(request, controller);
-				//call the action to render
+
+                //call the action to render
                 var result = controller.Index();
 				output = controller.RenderViewResultAsString(result);
             }

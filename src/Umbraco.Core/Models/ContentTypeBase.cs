@@ -2,10 +2,12 @@
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
 using Umbraco.Core.Models.EntityBase;
+using Umbraco.Core.Strings;
 
 namespace Umbraco.Core.Models
 {
@@ -14,6 +16,7 @@ namespace Umbraco.Core.Models
     /// </summary>
     [Serializable]
     [DataContract(IsReference = true)]
+    [DebuggerDisplay("Id: {Id}, Name: {Name}, Alias: {Alias}")]
     public abstract class ContentTypeBase : Entity, IContentTypeBase
     {
         private Lazy<int> _parentId;
@@ -47,17 +50,22 @@ namespace Umbraco.Core.Models
             _additionalData = new Dictionary<string, object>();
         }
 
-		protected ContentTypeBase(IContentTypeBase parent)
+		protected ContentTypeBase(IContentTypeBase parent) : this(parent, null)
 		{
-			Mandate.ParameterNotNull(parent, "parent");
+		}
 
-			_parentId = new Lazy<int>(() => parent.Id);
-			_allowedContentTypes = new List<ContentTypeSort>();
-			_propertyGroups = new PropertyGroupCollection();
+        protected ContentTypeBase(IContentTypeBase parent, string alias)
+        {
+            Mandate.ParameterNotNull(parent, "parent");
+
+            _alias = alias;
+            _parentId = new Lazy<int>(() => parent.Id);
+            _allowedContentTypes = new List<ContentTypeSort>();
+            _propertyGroups = new PropertyGroupCollection();
             _propertyTypes = new PropertyTypeCollection();
             _propertyTypes.CollectionChanged += PropertyTypesChanged;
             _additionalData = new Dictionary<string, object>();
-		}
+        }
 
         private static readonly PropertyInfo NameSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, string>(x => x.Name);
         private static readonly PropertyInfo ParentIdSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, int>(x => x.ParentId);
@@ -173,7 +181,8 @@ namespace Umbraco.Core.Models
             {
                 SetPropertyValueAndDetectChanges(o =>
                     {
-                        _alias = value.ToSafeAlias();
+                        //_alias = value.ToSafeAlias();
+                        _alias = value.ToCleanString(CleanStringType.Alias | CleanStringType.UmbracoCase);
                         return _alias;
                     }, _alias, AliasSelector);
             }
@@ -319,7 +328,7 @@ namespace Umbraco.Core.Models
             }
         }
 
-        private readonly IDictionary<string, object> _additionalData;
+        private IDictionary<string, object> _additionalData;
         /// <summary>
         /// Some entities may expose additional data that other's might not, this custom data will be available in this collection
         /// </summary>
@@ -328,11 +337,6 @@ namespace Umbraco.Core.Models
         {
             get { return _additionalData; }
         }
-
-        /// <summary>
-        /// Some entities may expose additional data that other's might not, this custom data will be available in this collection
-        /// </summary>
-        public IDictionary<string, object> AdditionalData { get; private set; }
 
         /// <summary>
         /// Gets or sets a list of integer Ids for allowed ContentTypes
@@ -347,14 +351,20 @@ namespace Umbraco.Core.Models
                 {
                     _allowedContentTypes = value;
                     return _allowedContentTypes;
-                }, _allowedContentTypes, AllowedContentTypesSelector);
+                }, _allowedContentTypes, AllowedContentTypesSelector,
+                    //Custom comparer for enumerable
+                    new DelegateEqualityComparer<IEnumerable<ContentTypeSort>>(
+                        (sorts, enumerable) => sorts.UnsortedSequenceEqual(enumerable),
+                        sorts => sorts.GetHashCode()));
             }
         }
 
         /// <summary>
         /// List of PropertyGroups available on this ContentType
         /// </summary>
-        /// <remarks>A PropertyGroup corresponds to a Tab in the UI</remarks>
+        /// <remarks>
+        /// A PropertyGroup corresponds to a Tab in the UI
+        /// </remarks>
         [DataMember]
         public virtual PropertyGroupCollection PropertyGroups
         {
@@ -370,7 +380,16 @@ namespace Umbraco.Core.Models
         /// List of PropertyTypes available on this ContentType.
         /// This list aggregates PropertyTypes across the PropertyGroups.
         /// </summary>
+        /// <remarks>
+        /// 
+        /// The setter is used purely to set the property types that DO NOT belong to a group!
+        /// 
+        /// Marked as DoNotClone because the result of this property is not the natural result of the data, it is 
+        /// a union of data so when auto-cloning if the setter is used it will be setting the unnatural result of the 
+        /// data. We manually clone this instead. 
+        /// </remarks>
         [IgnoreDataMember]
+        [DoNotClone]
         public virtual IEnumerable<PropertyType> PropertyTypes
         {
             get
@@ -386,6 +405,14 @@ namespace Umbraco.Core.Models
         }
 
         /// <summary>
+        /// Returns the property type collection containing types that are non-groups - used for tests
+        /// </summary>
+        internal IEnumerable<PropertyType> NonGroupedPropertyTypes
+        {
+            get { return _propertyTypes; }
+        }
+
+            /// <summary>
         /// A boolean flag indicating if a property type has been removed from this instance.
         /// </summary>
         /// <remarks>
@@ -433,6 +460,11 @@ namespace Umbraco.Core.Models
         /// <returns>Returns <c>True</c> if PropertyType was added, otherwise <c>False</c></returns>
         public bool AddPropertyType(PropertyType propertyType)
         {
+            if (propertyType.HasIdentity == false)
+            {
+                propertyType.Key = Guid.NewGuid();
+            }
+
             if (PropertyTypeExists(propertyType.Alias) == false)
             {
                 _propertyTypes.Add(propertyType);                
@@ -476,7 +508,6 @@ namespace Umbraco.Core.Models
         /// <param name="propertyTypeAlias">Alias of the <see cref="PropertyType"/> to remove</param>
         public void RemovePropertyType(string propertyTypeAlias)
         {
-
             //check if the property exist in one of our collections
             if (PropertyGroups.Any(group => group.PropertyTypes.Any(pt => pt.Alias == propertyTypeAlias))
                 || _propertyTypes.Any(x => x.Alias == propertyTypeAlias))
@@ -503,6 +534,7 @@ namespace Umbraco.Core.Models
         public void RemovePropertyGroup(string propertyGroupName)
         {
             PropertyGroups.RemoveItem(propertyGroupName);
+            OnPropertyChanged(PropertyGroupCollectionSelector);
         }
 
         /// <summary>
@@ -581,6 +613,25 @@ namespace Umbraco.Core.Models
             {
                 propertyType.ResetDirtyProperties();
             }
+        }
+
+        public override object DeepClone()
+        {
+            var clone = (ContentTypeBase)base.DeepClone();
+            //turn off change tracking
+            clone.DisableChangeTracking();
+            //need to manually wire up the event handlers for the property type collections - we've ensured
+            // its ignored from the auto-clone process because its return values are unions, not raw and 
+            // we end up with duplicates, see: http://issues.umbraco.org/issue/U4-4842
+
+            clone._propertyTypes = (PropertyTypeCollection)_propertyTypes.DeepClone();
+            clone._propertyTypes.CollectionChanged += clone.PropertyTypesChanged;
+            //this shouldn't really be needed since we're not tracking
+            clone.ResetDirtyProperties(false);
+            //re-enable tracking
+            clone.EnableChangeTracking();
+
+            return clone;
         }
     }
 }

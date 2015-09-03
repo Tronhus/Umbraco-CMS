@@ -7,6 +7,21 @@ namespace Umbraco.Core.Services
 {
     public interface IEntityService
     {
+        /// <summary>
+        /// Returns the integer id for a given GUID
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="umbracoObjectType"></param>
+        /// <returns></returns>
+        Attempt<int> GetIdForKey(Guid key, UmbracoObjectTypes umbracoObjectType);
+
+        /// <summary>
+        /// Returns the GUID for a given integer id
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="umbracoObjectType"></param>
+        /// <returns></returns>
+        Attempt<Guid> GetKeyForId(int id, UmbracoObjectTypes umbracoObjectType);
 
         /// <summary>
         /// Gets an UmbracoEntity by its Id, and optionally loads the complete object graph.
@@ -135,21 +150,31 @@ namespace Umbraco.Core.Services
         /// </summary>
         /// <typeparam name="T">Type of the entities to retrieve</typeparam>
         /// <returns>An enumerable list of <see cref="IUmbracoEntity"/> objects</returns>
-        IEnumerable<IUmbracoEntity> GetAll<T>() where T : IUmbracoEntity;
+        IEnumerable<IUmbracoEntity> GetAll<T>(params int[] ids) where T : IUmbracoEntity;
 
         /// <summary>
         /// Gets a collection of all <see cref="IUmbracoEntity"/> of a given type.
         /// </summary>
         /// <param name="umbracoObjectType">UmbracoObjectType of the entities to return</param>
+        /// <param name="ids"></param>
         /// <returns>An enumerable list of <see cref="IUmbracoEntity"/> objects</returns>
-        IEnumerable<IUmbracoEntity> GetAll(UmbracoObjectTypes umbracoObjectType);
+        IEnumerable<IUmbracoEntity> GetAll(UmbracoObjectTypes umbracoObjectType, params int[] ids);
+
+        /// <summary>
+        /// Gets a collection of all <see cref="IUmbracoEntity"/> of a given type.
+        /// </summary>
+        /// <param name="umbracoObjectType">UmbracoObjectType of the entities to return</param>
+        /// <param name="keys"></param>
+        /// <returns>An enumerable list of <see cref="IUmbracoEntity"/> objects</returns>
+        IEnumerable<IUmbracoEntity> GetAll(UmbracoObjectTypes umbracoObjectType, Guid[] keys);
 
         /// <summary>
         /// Gets a collection of <see cref="IUmbracoEntity"/>
         /// </summary>
         /// <param name="objectTypeId">Guid id of the UmbracoObjectType</param>
+        /// <param name="ids"></param>
         /// <returns>An enumerable list of <see cref="IUmbracoEntity"/> objects</returns>
-        IEnumerable<IUmbracoEntity> GetAll(Guid objectTypeId);
+        IEnumerable<IUmbracoEntity> GetAll(Guid objectTypeId, params int[] ids);
 
         /// <summary>
         /// Gets the UmbracoObjectType from the integer id of an IUmbracoEntity.

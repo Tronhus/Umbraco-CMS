@@ -9,11 +9,11 @@ using Umbraco.Core.Persistence.Repositories;
 
 namespace Umbraco.Core.Persistence.Factories
 {
-    internal class UmbracoEntityFactory : IEntityFactory<UmbracoEntity, EntityRepository.UmbracoEntityDto>
+    internal class UmbracoEntityFactory 
     {
         internal void AddAdditionalData(UmbracoEntity entity, IDictionary<string, object> originalEntityProperties)
         {
-            var entityProps = TypeHelper.GetPublicProperties(typeof(IUmbracoEntity)).Select(x => x.Name).ToArray();
+            var entityProps = typeof(IUmbracoEntity).GetPublicProperties().Select(x => x.Name).ToArray();
             
             //figure out what extra properties we have that are not on the IUmbracoEntity and add them to additional data
             foreach (var k in originalEntityProperties.Keys
@@ -44,7 +44,6 @@ namespace Umbraco.Core.Persistence.Factories
                 ContentTypeAlias = asDictionary.ContainsKey("alias") ? (d.alias ?? string.Empty) : string.Empty,
                 ContentTypeIcon = asDictionary.ContainsKey("icon") ? (d.icon ?? string.Empty) : string.Empty,
                 ContentTypeThumbnail = asDictionary.ContainsKey("thumbnail") ? (d.thumbnail ?? string.Empty) : string.Empty,
-                UmbracoProperties = new List<UmbracoEntity.UmbracoProperty>()
             };
 
             var publishedVersion = default(Guid);            
@@ -76,7 +75,7 @@ namespace Umbraco.Core.Persistence.Factories
                                  CreateDate = dto.CreateDate,
                                  CreatorId = dto.UserId.Value,
                                  Id = dto.NodeId,
-                                 Key = dto.UniqueId.Value,
+                                 Key = dto.UniqueId,
                                  Level = dto.Level,
                                  Name = dto.Text,
                                  NodeObjectTypeId = dto.NodeObjectType.Value,
@@ -87,7 +86,6 @@ namespace Umbraco.Core.Persistence.Factories
                                  ContentTypeAlias = dto.Alias ?? string.Empty,
                                  ContentTypeIcon = dto.Icon ?? string.Empty,
                                  ContentTypeThumbnail = dto.Thumbnail ?? string.Empty,
-                                 UmbracoProperties = new List<UmbracoEntity.UmbracoProperty>()
                              };
 
             entity.IsPublished = dto.PublishedVersion != default(Guid) || (dto.NewestVersion != default(Guid) && dto.PublishedVersion == dto.NewestVersion);
@@ -98,12 +96,13 @@ namespace Umbraco.Core.Persistence.Factories
             {
                 foreach (var propertyDto in dto.UmbracoPropertyDtos)
                 {
-                    entity.UmbracoProperties.Add(new UmbracoEntity.UmbracoProperty
-                                                      {
-                                                          PropertyEditorAlias =
-                                                              propertyDto.PropertyEditorAlias,
-                                                          Value = propertyDto.UmbracoFile
-                                                      });
+                    entity.AdditionalData[propertyDto.PropertyAlias] = new UmbracoEntity.EntityProperty
+                    {
+                        PropertyEditorAlias = propertyDto.PropertyEditorAlias,
+                        Value = propertyDto.NTextValue.IsNullOrWhiteSpace()
+                            ? propertyDto.NVarcharValue
+                            : propertyDto.NTextValue.ConvertToJsonIfPossible()
+                    };
                 }
             }
 

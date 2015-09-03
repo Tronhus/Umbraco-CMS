@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Caching;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -16,17 +17,26 @@ namespace Umbraco.Core.Cache
     /// </summary>
     internal class ObjectCacheRuntimeCacheProvider : IRuntimeCacheProvider
     {
-        private static readonly ReaderWriterLockSlim Locker = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
+
+        private readonly ReaderWriterLockSlim _locker = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
         internal ObjectCache MemoryCache;
+
+        /// <summary>
+        /// Used for debugging
+        /// </summary>
+        internal Guid InstanceId { get; private set; }
 
         public ObjectCacheRuntimeCacheProvider()
         {
             MemoryCache = new MemoryCache("in-memory");
+            InstanceId = Guid.NewGuid();
         }
+
+        #region Clear
 
         public virtual void ClearAllCache()
         {
-            using (new WriteLock(Locker))
+            using (new WriteLock(_locker))
             {
                 MemoryCache.DisposeIfDisposable();
                 MemoryCache = new MemoryCache("in-memory");
@@ -35,132 +45,209 @@ namespace Umbraco.Core.Cache
 
         public virtual void ClearCacheItem(string key)
         {
-            using (new WriteLock(Locker))
+            using (new WriteLock(_locker))
             {
                 if (MemoryCache[key] == null) return;
                 MemoryCache.Remove(key);
-            }            
+            }
         }
 
         public virtual void ClearCacheObjectTypes(string typeName)
         {
-            using (new WriteLock(Locker))
+            var type = TypeFinder.GetTypeByName(typeName);
+            if (type == null) return;
+            var isInterface = type.IsInterface;
+            using (new WriteLock(_locker))
             {
-                var keysToRemove = MemoryCache
-                    .Where(c => c.Value != null && c.Value.GetType().ToString().InvariantEquals(typeName))
-                    .Select(c => c.Key)
-                    .ToArray();
-                foreach (var k in keysToRemove)
-                    MemoryCache.Remove(k);
+                foreach (var key in MemoryCache
+                    .Where(x =>
+                    {
+                        // x.Value is Lazy<object> and not null, its value may be null
+                        // remove null values as well, does not hurt
+                        // get non-created as NonCreatedValue & exceptions as null
+                        var value = DictionaryCacheProviderBase.GetSafeLazyValue((Lazy<object>)x.Value, true);
+
+                        // if T is an interface remove anything that implements that interface
+                        // otherwise remove exact types (not inherited types)
+                        return value == null || (isInterface ? (type.IsInstanceOfType(value)) : (value.GetType() == type));
+                    })
+                    .Select(x => x.Key)
+                    .ToArray()) // ToArray required to remove
+                    MemoryCache.Remove(key);
             }
         }
 
         public virtual void ClearCacheObjectTypes<T>()
         {
-            using (new WriteLock(Locker))
+            using (new WriteLock(_locker))
             {
                 var typeOfT = typeof (T);
-                var keysToRemove = MemoryCache
-                    .Where(c => c.Value != null && c.Value.GetType() == typeOfT)
-                    .Select(c => c.Key)
-                    .ToArray();
-                foreach (var k in keysToRemove)
-                    MemoryCache.Remove(k);
+                var isInterface = typeOfT.IsInterface;
+                foreach (var key in MemoryCache
+                    .Where(x =>
+                    {
+                        // x.Value is Lazy<object> and not null, its value may be null
+                        // remove null values as well, does not hurt
+                        // get non-created as NonCreatedValue & exceptions as null
+                        var value = DictionaryCacheProviderBase.GetSafeLazyValue((Lazy<object>)x.Value, true);
+
+                        // if T is an interface remove anything that implements that interface
+                        // otherwise remove exact types (not inherited types)
+                        return value == null || (isInterface ? (value is T) : (value.GetType() == typeOfT));
+
+                    })
+                    .Select(x => x.Key)
+                    .ToArray()) // ToArray required to remove
+                    MemoryCache.Remove(key);
             }
         }
 
         public virtual void ClearCacheObjectTypes<T>(Func<string, T, bool> predicate)
         {
-            using (new WriteLock(Locker))
+            using (new WriteLock(_locker))
             {
                 var typeOfT = typeof(T);
-                var keysToRemove = MemoryCache
-                    .Where(c => c.Value != null && c.Value.GetType() == typeOfT && predicate(c.Key, (T)c.Value))
-                    .Select(c => c.Key)
-                    .ToArray();
-                foreach (var k in keysToRemove)
-                    MemoryCache.Remove(k);
+                var isInterface = typeOfT.IsInterface;
+                foreach (var key in MemoryCache
+                    .Where(x =>
+                    {
+                        // x.Value is Lazy<object> and not null, its value may be null
+                        // remove null values as well, does not hurt
+                        // get non-created as NonCreatedValue & exceptions as null
+                        var value = DictionaryCacheProviderBase.GetSafeLazyValue((Lazy<object>)x.Value, true);
+                        if (value == null) return true;
+
+                        // if T is an interface remove anything that implements that interface
+                        // otherwise remove exact types (not inherited types)
+                        return (isInterface ? (value is T) : (value.GetType() == typeOfT))
+                               && predicate(x.Key, (T)value);
+                    })
+                    .Select(x => x.Key)
+                    .ToArray()) // ToArray required to remove
+                    MemoryCache.Remove(key);
             }
         }
 
         public virtual void ClearCacheByKeySearch(string keyStartsWith)
         {
-            using (new WriteLock(Locker))
+            using (new WriteLock(_locker))
             {
-                var keysToRemove = (from c in MemoryCache where c.Key.InvariantStartsWith(keyStartsWith) select c.Key).ToList();
-                foreach (var k in keysToRemove)
-                {
-                    MemoryCache.Remove(k);
-                }
-            }            
+                foreach (var key in MemoryCache
+                    .Where(x => x.Key.InvariantStartsWith(keyStartsWith))
+                    .Select(x => x.Key)
+                    .ToArray()) // ToArray required to remove
+                    MemoryCache.Remove(key);
+            }
         }
 
         public virtual void ClearCacheByKeyExpression(string regexString)
         {
-            using (new WriteLock(Locker))
+            using (new WriteLock(_locker))
             {
-                var keysToRemove = (from c in MemoryCache where Regex.IsMatch(c.Key, regexString) select c.Key).ToList();
-                foreach (var k in keysToRemove)
-                {
-                    MemoryCache.Remove(k);
-                }
-            }     
+                foreach (var key in MemoryCache
+                    .Where(x => Regex.IsMatch(x.Key, regexString))
+                    .Select(x => x.Key)
+                    .ToArray()) // ToArray required to remove
+                    MemoryCache.Remove(key);
+            }
         }
 
-        public virtual IEnumerable<object> GetCacheItemsByKeySearch(string keyStartsWith)
+        #endregion
+
+        #region Get
+
+        public IEnumerable<object> GetCacheItemsByKeySearch(string keyStartsWith)
         {
-            return (from c in MemoryCache
-                    where c.Key.InvariantStartsWith(keyStartsWith)
-                    select c.Value).ToList();
+            KeyValuePair<string, object>[] entries;
+            using (new ReadLock(_locker))
+            {
+                entries = MemoryCache
+                    .Where(x => x.Key.InvariantStartsWith(keyStartsWith))
+                    .ToArray(); // evaluate while locked
+            }
+            return entries
+                .Select(x => DictionaryCacheProviderBase.GetSafeLazyValue((Lazy<object>)x.Value)) // return exceptions as null
+                .Where(x => x != null) // backward compat, don't store null values in the cache
+                .ToList();
         }
 
-        public virtual object GetCacheItem(string cacheKey)
+        public IEnumerable<object> GetCacheItemsByKeyExpression(string regexString)
         {
-            var result = MemoryCache.Get(cacheKey);
-            return result;
+            KeyValuePair<string, object>[] entries;
+            using (new ReadLock(_locker))
+            {
+                entries = MemoryCache
+                    .Where(x => Regex.IsMatch(x.Key, regexString))
+                    .ToArray(); // evaluate while locked
+            }
+            return entries
+                .Select(x => DictionaryCacheProviderBase.GetSafeLazyValue((Lazy<object>)x.Value)) // return exceptions as null
+                .Where(x => x != null) // backward compat, don't store null values in the cache
+                .ToList();
         }
 
-        public virtual object GetCacheItem(string cacheKey, Func<object> getCacheItem)
+        public object GetCacheItem(string cacheKey)
+        {
+            Lazy<object> result;
+            using (new ReadLock(_locker))
+            {
+                result = MemoryCache.Get(cacheKey) as Lazy<object>; // null if key not found
+            }
+            return result == null ? null : DictionaryCacheProviderBase.GetSafeLazyValue(result); // return exceptions as null
+        }
+
+        public object GetCacheItem(string cacheKey, Func<object> getCacheItem)
         {
             return GetCacheItem(cacheKey, getCacheItem, null);
         }
 
-        public object GetCacheItem(
-            string cacheKey, 
-            Func<object> getCacheItem, 
-            TimeSpan? timeout, 
-            bool isSliding = false, 
-            CacheItemPriority priority = CacheItemPriority.Normal,
-            CacheItemRemovedCallback removedCallback = null, 
-            string[] dependentFiles = null)
+        public object GetCacheItem(string cacheKey, Func<object> getCacheItem, TimeSpan? timeout, bool isSliding = false, CacheItemPriority priority = CacheItemPriority.Normal, CacheItemRemovedCallback removedCallback = null, string[] dependentFiles = null)
         {
-            using (var lck = new UpgradeableReadLock(Locker))
-            {
-                var result = MemoryCache.Get(cacheKey);
-                if (result == null)
-                {
-                    lck.UpgradeToWriteLock();
+            // see notes in HttpRuntimeCacheProvider
 
-                    result = getCacheItem();
-                    if (result != null)
-                    {
-                        var policy = GetPolicy(timeout, isSliding, removedCallback, dependentFiles);
-                        MemoryCache.Set(cacheKey, result, policy);
-                    }
+            Lazy<object> result;
+
+            using (var lck = new UpgradeableReadLock(_locker))
+            {
+                result = MemoryCache.Get(cacheKey) as Lazy<object>;
+                if (result == null || DictionaryCacheProviderBase.GetSafeLazyValue(result, true) == null) // get non-created as NonCreatedValue & exceptions as null
+                {
+                    result = DictionaryCacheProviderBase.GetSafeLazy(getCacheItem);
+                    var policy = GetPolicy(timeout, isSliding, removedCallback, dependentFiles);
+
+                    lck.UpgradeToWriteLock();
+                    //NOTE: This does an add or update
+                    MemoryCache.Set(cacheKey, result, policy);
                 }
-                return result;
             }
+
+            //return result.Value;
+
+            var value = result.Value; // will not throw (safe lazy)
+            var eh = value as DictionaryCacheProviderBase.ExceptionHolder;
+            if (eh != null) throw eh.Exception; // throw once!
+            return value;
         }
+
+        #endregion
+
+        #region Insert
 
         public void InsertCacheItem(string cacheKey, Func<object> getCacheItem, TimeSpan? timeout = null, bool isSliding = false, CacheItemPriority priority = CacheItemPriority.Normal, CacheItemRemovedCallback removedCallback = null, string[] dependentFiles = null)
         {
-            object result = getCacheItem();
-            if (result != null)
-            {
-                var policy = GetPolicy(timeout, isSliding, removedCallback, dependentFiles);
-                MemoryCache.Set(cacheKey, result, policy);
-            }
+            // NOTE - here also we must insert a Lazy<object> but we can evaluate it right now
+            // and make sure we don't store a null value.
+
+            var result = DictionaryCacheProviderBase.GetSafeLazy(getCacheItem);
+            var value = result.Value; // force evaluation now
+            if (value == null) return; // do not store null values (backward compat)
+
+            var policy = GetPolicy(timeout, isSliding, removedCallback, dependentFiles);
+            //NOTE: This does an add or update
+            MemoryCache.Set(cacheKey, result, policy);
         }
+
+        #endregion
 
         private static CacheItemPolicy GetPolicy(TimeSpan? timeout = null, bool isSliding = false, CacheItemRemovedCallback removedCallback = null, string[] dependentFiles = null)
         {
@@ -177,7 +264,7 @@ namespace Umbraco.Core.Cache
             {
                 policy.ChangeMonitors.Add(new HostFileChangeMonitor(dependentFiles.ToList()));
             }
-            
+
             if (removedCallback != null)
             {
                 policy.RemovedCallback = arguments =>
@@ -208,6 +295,5 @@ namespace Umbraco.Core.Cache
             }
             return policy;
         }
-        
     }
 }

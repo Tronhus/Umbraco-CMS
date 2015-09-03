@@ -9,10 +9,11 @@ using Umbraco.Core;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.Editors;
+using Umbraco.Core.Services;
 using Umbraco.Web.Models.ContentEditing;
 using Umbraco.Web.WebApi;
 using Umbraco.Web.WebApi.Filters;
-using Umbraco.Core.Models;
+
 
 namespace Umbraco.Web.Editors
 {
@@ -20,7 +21,7 @@ namespace Umbraco.Web.Editors
     /// An abstract base controller used for media/content (and probably members) to try to reduce code replication.
     /// </summary>
     [OutgoingDateTimeFormat]
-    public abstract class ContentControllerBase : UmbracoAuthorizedJsonController
+    public abstract class ContentControllerBase : BackOfficeNotificationsController
     {
         /// <summary>
         /// Constructor
@@ -117,7 +118,7 @@ namespace Umbraco.Web.Editors
                         var supportTagsAttribute = TagExtractor.GetAttribute(p.PropertyEditor);
                         if (supportTagsAttribute != null)
                         {
-                            TagExtractor.SetPropertyTags(contentItem.PersistedContent, dboProperty, data, propVal, supportTagsAttribute);                            
+                            TagExtractor.SetPropertyTags(dboProperty, data, propVal, supportTagsAttribute);
                         }
                         else
                         {
@@ -154,9 +155,11 @@ namespace Umbraco.Web.Editors
         /// </remarks>
         protected TPersisted GetObjectFromRequest<TPersisted>(Func<TPersisted> getFromService)
         {
-            return Request.Properties.ContainsKey(typeof (TPersisted).ToString()) == false
-                       ? getFromService()
-                       : (TPersisted) Request.Properties[typeof (TPersisted).ToString()];
+            //checks if the request contains the key and the item is not null, if that is the case, return it from the request, otherwise return
+            // it from the callback
+            return Request.Properties.ContainsKey(typeof(TPersisted).ToString()) && Request.Properties[typeof(TPersisted).ToString()] != null
+                ? (TPersisted) Request.Properties[typeof (TPersisted).ToString()]
+                : getFromService();
         } 
 
         /// <summary>
@@ -169,5 +172,19 @@ namespace Umbraco.Web.Editors
             return (action.ToString().EndsWith("New"));
         }
 
+        protected void AddCancelMessage(INotificationModel display, 
+            string header = "speechBubbles/operationCancelledHeader",             
+            string message = "speechBubbles/operationCancelledText",
+            bool localizeHeader = true,
+            bool localizeMessage = true)
+        {
+            //if there's already a default event message, don't add our default one
+            var msgs = UmbracoContext.GetCurrentEventMessages();
+            if (msgs != null && msgs.GetAll().Any(x => x.IsDefaultEventMessage)) return;
+
+            display.AddWarningNotification(
+                localizeHeader ? Services.TextService.Localize(header) : header,
+                localizeMessage ? Services.TextService.Localize(message): message);
+        }
     }
 }

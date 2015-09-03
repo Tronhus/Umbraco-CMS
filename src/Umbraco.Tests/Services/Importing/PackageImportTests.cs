@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
 using NUnit.Framework;
@@ -191,6 +192,30 @@ namespace Umbraco.Tests.Services.Importing
         {
             // Arrange
             string strXml = ImportResources.StandardMvc_Package;
+            var xml = XElement.Parse(strXml);
+            var dataTypeElement = xml.Descendants("DataTypes").First();
+            var templateElement = xml.Descendants("Templates").First();
+            var docTypeElement = xml.Descendants("DocumentTypes").First();
+
+            // Act
+            var dataTypeDefinitions = ServiceContext.PackagingService.ImportDataTypeDefinitions(dataTypeElement);
+            var templates = ServiceContext.PackagingService.ImportTemplates(templateElement);
+            var contentTypes = ServiceContext.PackagingService.ImportContentTypes(docTypeElement);
+            var numberOfDocTypes = (from doc in docTypeElement.Elements("DocumentType") select doc).Count();
+
+            //Assert - Re-Import contenttypes doesn't throw
+            Assert.DoesNotThrow(() => ServiceContext.PackagingService.ImportContentTypes(docTypeElement));
+            Assert.That(contentTypes.Count(), Is.EqualTo(numberOfDocTypes));
+            Assert.That(dataTypeDefinitions, Is.Not.Null);
+            Assert.That(dataTypeDefinitions.Any(), Is.True);
+            Assert.That(templates.Any(), Is.True);
+        }
+
+        [Test]
+        public void PackagingService_Can_Import_Fanoe_Starterkit_ContentTypes_And_Templates_Xml()
+        {
+            // Arrange
+            string strXml = ImportResources.Fanoe_Package;
             var xml = XElement.Parse(strXml);
             var dataTypeElement = xml.Descendants("DataTypes").First();
             var templateElement = xml.Descendants("Templates").First();
@@ -415,6 +440,32 @@ namespace Umbraco.Tests.Services.Importing
         }
 
         [Test]
+        public void PackagingService_Can_Import_Nested_DictionaryItems()
+        {
+            // Arrange
+            const string parentKey = "Parent";
+            const string childKey = "Child";
+
+            var newPackageXml = XElement.Parse(ImportResources.Dictionary_Package);
+            var dictionaryItemsElement = newPackageXml.Elements("DictionaryItems").First();
+
+            AddLanguages();
+
+            // Act
+            var dictionaryItems = ServiceContext.PackagingService.ImportDictionaryItems(dictionaryItemsElement);
+
+            // Assert
+            Assert.That(ServiceContext.LocalizationService.DictionaryItemExists(parentKey), "DictionaryItem parentKey does not exist");
+            Assert.That(ServiceContext.LocalizationService.DictionaryItemExists(childKey), "DictionaryItem childKey does not exist");
+
+            var parentDictionaryItem = ServiceContext.LocalizationService.GetDictionaryItemByKey(parentKey);
+            var childDictionaryItem = ServiceContext.LocalizationService.GetDictionaryItemByKey(childKey);
+            
+            Assert.That(parentDictionaryItem.ParentId, Is.Not.EqualTo(childDictionaryItem.ParentId));
+            Assert.That(childDictionaryItem.ParentId, Is.EqualTo(parentDictionaryItem.Key));
+        }
+
+        [Test]
         public void PackagingService_WhenExistingDictionaryKey_ImportsNewChildren()
         {
             // Arrange
@@ -526,6 +577,60 @@ namespace Umbraco.Tests.Services.Importing
             {
                 Assert.That(allMacros.Any(x => x.Alias == macro.Alias), Is.True);
             }
+        }
+
+        [Test]
+        public void PackagingService_Can_Import_Package_With_Compositions()
+        {
+            // Arrange
+            string strXml = ImportResources.CompositionsTestPackage;
+            var xml = XElement.Parse(strXml);
+            var templateElement = xml.Descendants("Templates").First();
+            var docTypeElement = xml.Descendants("DocumentTypes").First();
+            var packagingService = ServiceContext.PackagingService;
+
+            // Act
+            var templates = packagingService.ImportTemplates(templateElement);
+            var contentTypes = packagingService.ImportContentTypes(docTypeElement);
+            var numberOfDocTypes = (from doc in docTypeElement.Elements("DocumentType") select doc).Count();
+
+            // Assert
+            Assert.That(contentTypes, Is.Not.Null);
+            Assert.That(contentTypes.Any(), Is.True);
+            Assert.That(contentTypes.Count(), Is.EqualTo(numberOfDocTypes));
+            Assert.That(contentTypes.Count(x => x.ParentId == -1), Is.EqualTo(3));
+
+            var textpage = contentTypes.First(x => x.Alias.Equals("umbTextyPage"));
+            Assert.That(textpage.ParentId, Is.Not.EqualTo(-1));
+            Assert.That(textpage.ContentTypeComposition.Count(), Is.EqualTo(3));
+            Assert.That(textpage.ContentTypeCompositionExists("umbMaster"), Is.True);
+            Assert.That(textpage.ContentTypeCompositionExists("Meta"), Is.True);
+            Assert.That(textpage.ContentTypeCompositionExists("Seo"), Is.True);
+        }
+
+        [Test]
+        public void PackagingService_Can_Import_Package_With_Compositions_Ordered()
+        {
+            // Arrange
+            string strXml = ImportResources.CompositionsTestPackage_Random;
+            var xml = XElement.Parse(strXml);
+            var docTypeElement = xml.Descendants("DocumentTypes").First();
+            var packagingService = ServiceContext.PackagingService;
+
+            // Act
+            var contentTypes = packagingService.ImportContentTypes(docTypeElement);
+            var numberOfDocTypes = (from doc in docTypeElement.Elements("DocumentType") select doc).Count();
+
+            // Assert
+            Assert.That(contentTypes, Is.Not.Null);
+            Assert.That(contentTypes.Any(), Is.True);
+            Assert.That(contentTypes.Count(), Is.EqualTo(numberOfDocTypes));
+
+            var testContentType = contentTypes.First(x => x.Alias.Equals("CompositeTest"));
+            Assert.That(testContentType.ContentTypeComposition.Count(), Is.EqualTo(3));
+            Assert.That(testContentType.ContentTypeCompositionExists("Content"), Is.True);
+            Assert.That(testContentType.ContentTypeCompositionExists("Meta"), Is.True);
+            Assert.That(testContentType.ContentTypeCompositionExists("Seo"), Is.True);
         }
 
         private void AddLanguages()

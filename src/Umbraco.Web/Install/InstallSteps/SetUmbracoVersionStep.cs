@@ -34,10 +34,10 @@ namespace Umbraco.Web.Install.InstallSteps
             DistributedCache.Instance.RefreshAllPageCache();
 
             // Update configurationStatus
-            GlobalSettings.ConfigurationStatus = UmbracoVersion.Current.ToString(3);
+            GlobalSettings.ConfigurationStatus = UmbracoVersion.GetSemanticVersion().ToSemanticString();
 
             // Update ClientDependency version
-            var clientDependencyConfig = new ClientDependencyConfiguration();
+            var clientDependencyConfig = new ClientDependencyConfiguration(_applicationContext.ProfilingLogger.Logger);
             var clientDependencyUpdated = clientDependencyConfig.IncreaseVersionNumber();
 
             var security = new WebSecurity(_httpContext, _applicationContext);
@@ -48,6 +48,11 @@ namespace Umbraco.Web.Install.InstallSteps
             //// login token from a previous version when we didn't have csrf tokens in place
             //var security = new WebSecurity(new HttpContextWrapper(Context), ApplicationContext.Current);
             //security.ClearCurrentLogin();
+
+            //reports the ended install
+            InstallHelper ih = new InstallHelper(UmbracoContext.Current);
+            ih.InstallStatus(true, "");
+
             return null;
         }
 

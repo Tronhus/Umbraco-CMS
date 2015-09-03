@@ -9,6 +9,7 @@ using System.Runtime.Serialization;
 using System.Text.RegularExpressions;
 using Umbraco.Core.IO;
 using Umbraco.Core.Models.EntityBase;
+using Umbraco.Core.Strings;
 
 namespace Umbraco.Core.Models
 {
@@ -17,7 +18,7 @@ namespace Umbraco.Core.Models
     /// </summary>
     [Serializable]
     [DataContract(IsReference = true)]
-    internal class Macro : Entity, IMacro
+    public class Macro : Entity, IMacro
     {
         public Macro()
         {
@@ -48,7 +49,7 @@ namespace Umbraco.Core.Models
             Id = id;
             UseInEditor = useInEditor;
             CacheDuration = cacheDuration;
-            Alias = alias;
+            Alias = alias.ToCleanString(CleanStringType.Alias);
             Name = name;
             ControlType = controlType;
             ControlAssembly = controlAssembly;
@@ -87,7 +88,7 @@ namespace Umbraco.Core.Models
         {
             UseInEditor = useInEditor;
             CacheDuration = cacheDuration;
-            Alias = alias;
+            Alias = alias.ToCleanString(CleanStringType.Alias);
             Name = name;
             ControlType = controlType;
             ControlAssembly = controlAssembly;
@@ -109,9 +110,9 @@ namespace Umbraco.Core.Models
         private string _scriptAssembly;
         private string _scriptPath;
         private string _xslt;
-        private readonly MacroPropertyCollection _properties;
-        private readonly List<string> _addedProperties;
-        private readonly List<string> _removedProperties;
+        private MacroPropertyCollection _properties;
+        private List<string> _addedProperties;
+        private List<string> _removedProperties;
 
         private static readonly PropertyInfo AliasSelector = ExpressionHelper.GetPropertyInfo<Macro, string>(x => x.Alias);
         private static readonly PropertyInfo NameSelector = ExpressionHelper.GetPropertyInfo<Macro, string>(x => x.Name);
@@ -138,12 +139,11 @@ namespace Umbraco.Core.Models
 
                 var alias = prop.Alias;
 
-                //remove from the removed/added props (since people could add/remove all they want in one request)
-                _removedProperties.RemoveAll(s => s == alias);
-                _addedProperties.RemoveAll(s => s == alias);
-
-                //add to the added props
-                _addedProperties.Add(alias);
+                if (_addedProperties.Contains(alias) == false)
+                {
+                    //add to the added props
+                    _addedProperties.Add(alias);
+                }
             }
             else if (e.Action == NotifyCollectionChangedAction.Remove)
             {
@@ -153,12 +153,10 @@ namespace Umbraco.Core.Models
 
                 var alias = prop.Alias;
 
-                //remove from the removed/added props (since people could add/remove all they want in one request)
-                _removedProperties.RemoveAll(s => s == alias);
-                _addedProperties.RemoveAll(s => s == alias);
-
-                //add to the added props
-                _removedProperties.Add(alias);
+                if (_removedProperties.Contains(alias) == false)
+                {
+                    _removedProperties.Add(alias);
+                }
             }
         }
 
@@ -210,7 +208,7 @@ namespace Umbraco.Core.Models
             {
                 SetPropertyValueAndDetectChanges(o =>
                 {
-                    _alias = value;
+                    _alias = value.ToCleanString(CleanStringType.Alias);
                     return _alias;
                 }, _alias, AliasSelector);
             }
@@ -397,7 +395,23 @@ namespace Umbraco.Core.Models
         {
             get { return _properties; }            
         }
-        
-        
+
+        public override object DeepClone()
+        {
+            var clone = (Macro)base.DeepClone();
+            //turn off change tracking
+            clone.DisableChangeTracking();
+            clone._addedProperties = new List<string>();
+            clone._removedProperties = new List<string>();
+            clone._properties = (MacroPropertyCollection)Properties.DeepClone();
+            //re-assign the event handler
+            clone._properties.CollectionChanged += clone.PropertiesChanged;
+            //this shouldn't really be needed since we're not tracking
+            clone.ResetDirtyProperties(false);
+            //re-enable tracking
+            clone.EnableChangeTracking();
+
+            return clone;
+        }
     }
 }

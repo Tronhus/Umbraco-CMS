@@ -1,21 +1,11 @@
-﻿
-// debugging
-// define WRTCONS to write cleaning details & steps to console
-// leave it wrapped within #if DEBUG to make sure it does leak
-// into RELEASE, see http://issues.umbraco.org/issue/U4-4199
-#if DEBUG
-#undef WRTCONS
-#endif
-
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Globalization;
-using System.Text;
-using System.Text.RegularExpressions;
 using Umbraco.Core.Configuration;
+using Umbraco.Core.Configuration.UmbracoSettings;
 
 namespace Umbraco.Core.Strings
 {
@@ -29,10 +19,20 @@ namespace Umbraco.Core.Strings
     /// </remarks>
     public class DefaultShortStringHelper : IShortStringHelper
     {
+        private readonly IUmbracoSettingsSection _umbracoSettings;
+
         #region Ctor and vars
 
+        [Obsolete("Use the other ctor that specifies all dependencies")]
         public DefaultShortStringHelper()
         {
+            _umbracoSettings = _umbracoSettings;
+            InitializeLegacyUrlReplaceCharacters();
+        }
+
+        public DefaultShortStringHelper(IUmbracoSettingsSection umbracoSettings)
+        {
+            _umbracoSettings = umbracoSettings;
             InitializeLegacyUrlReplaceCharacters();
         }
 
@@ -68,9 +68,9 @@ namespace Umbraco.Core.Strings
 
         private void InitializeLegacyUrlReplaceCharacters()
         {
-            foreach (var node in UmbracoConfig.For.UmbracoSettings().RequestHandler.CharCollection)
+            foreach (var node in _umbracoSettings.RequestHandler.CharCollection)
             {
-                if (node.Char.IsNullOrWhiteSpace() == false)
+                if(string.IsNullOrEmpty(node.Char) == false)
                     _urlReplaceCharacters[node.Char] = node.Replacement;
             }
         }
@@ -157,7 +157,7 @@ namespace Umbraco.Core.Strings
                 PreFilter = ApplyUrlReplaceCharacters,
                 PostFilter = x => CutMaxLength(x, 240),
                 IsTerm = (c, leading) => char.IsLetterOrDigit(c) || c == '_', // letter, digit or underscore
-                StringType = (UmbracoConfig.For.UmbracoSettings().RequestHandler.ConvertUrlsToAscii ? CleanStringType.Ascii : CleanStringType.Utf8) | CleanStringType.LowerCase,
+                StringType = (_umbracoSettings.RequestHandler.ConvertUrlsToAscii ? CleanStringType.Ascii : CleanStringType.Utf8) | CleanStringType.LowerCase,
                 BreakTermsOnUpper = false,
                 Separator = '-'
             }).WithConfig(CleanStringType.FileName, new Config
@@ -173,6 +173,12 @@ namespace Umbraco.Core.Strings
                 IsTerm = (c, leading) => leading 
                     ? char.IsLetter(c) // only letters
                     : (char.IsLetterOrDigit(c) || c == '_'), // letter, digit or underscore
+                StringType = CleanStringType.Ascii | CleanStringType.UmbracoCase,
+                BreakTermsOnUpper = false
+            }).WithConfig(CleanStringType.UnderscoreAlias, new Config
+            {
+                PreFilter = ApplyUrlReplaceCharacters,
+                IsTerm = (c, leading) => char.IsLetterOrDigit(c) || c == '_', // letter, digit or underscore
                 StringType = CleanStringType.Ascii | CleanStringType.UmbracoCase,
                 BreakTermsOnUpper = false
             }).WithConfig(CleanStringType.ConvertCase, new Config
@@ -287,7 +293,7 @@ namespace Umbraco.Core.Strings
 var UMBRACO_FORCE_SAFE_ALIAS = {0};
 var UMBRACO_FORCE_SAFE_ALIAS_URL = '{1}';
 var UMBRACO_FORCE_SAFE_ALIAS_TIMEOUT = 666;
-var UMBRACO_FORCE_SAFE_ALIAS_TIMEOUTS = {{ }};
+var UMBRACO_FORCE_SAFE_ALIAS_TMKEY = 'safe-alias-tmout';
 
 function getSafeAliasFromServer(value, callback) {{
     $.getJSON(UMBRACO_FORCE_SAFE_ALIAS_URL + 'ToSafeAlias?value=' + encodeURIComponent(value), function(json) {{
@@ -295,28 +301,30 @@ function getSafeAliasFromServer(value, callback) {{
     }});
 }}
 
-function getSafeAlias(id, value, immediate, callback) {{
+function getSafeAlias(input, value, immediate, callback) {{
     if (!UMBRACO_FORCE_SAFE_ALIAS) {{
         callback(value);
         return;
     }}
-    if (UMBRACO_FORCE_SAFE_ALIAS_TIMEOUTS[id]) clearTimeout(UMBRACO_FORCE_SAFE_ALIAS_TIMEOUTS[id]);
-    UMBRACO_FORCE_SAFE_ALIAS_TIMEOUTS[id] = setTimeout(function() {{
-        UMBRACO_FORCE_SAFE_ALIAS_TIMEOUTS[id] = null;
+    var timeout = input.data(UMBRACO_FORCE_SAFE_ALIAS_TMKEY);
+    if (timeout) clearTimeout(timeout);
+    input.data(UMBRACO_FORCE_SAFE_ALIAS_TMKEY, setTimeout(function() {{
+        input.removeData(UMBRACO_FORCE_SAFE_ALIAS_TMKEY);
         getSafeAliasFromServer(value, function(alias) {{ callback(alias); }});
-    }}, UMBRACO_FORCE_SAFE_ALIAS_TIMEOUT);
+    }}, UMBRACO_FORCE_SAFE_ALIAS_TIMEOUT));
 }}
 
-function validateSafeAlias(id, value, immediate, callback) {{
+function validateSafeAlias(input, value, immediate, callback) {{
     if (!UMBRACO_FORCE_SAFE_ALIAS) {{
         callback(true);
         return;
     }}
-    if (UMBRACO_FORCE_SAFE_ALIAS_TIMEOUTS[id]) clearTimeout(UMBRACO_FORCE_SAFE_ALIAS_TIMEOUTS[id]);
-    UMBRACO_FORCE_SAFE_ALIAS_TIMEOUTS[id] = setTimeout(function() {{
-        UMBRACO_FORCE_SAFE_ALIAS_TIMEOUTS[id] = null;
+    var timeout = input.data(UMBRACO_FORCE_SAFE_ALIAS_TMKEY);
+    if (timeout) clearTimeout(timeout);
+    input.data(UMBRACO_FORCE_SAFE_ALIAS_TMKEY, setTimeout(function() {{
+        input.removeData(UMBRACO_FORCE_SAFE_ALIAS_TMKEY);
         getSafeAliasFromServer(value, function(alias) {{ callback(value.toLowerCase() == alias.toLowerCase()); }});
-    }}, UMBRACO_FORCE_SAFE_ALIAS_TIMEOUT);
+    }}, UMBRACO_FORCE_SAFE_ALIAS_TIMEOUT));
 }}
 ";
 
@@ -326,7 +334,7 @@ function validateSafeAlias(id, value, immediate, callback) {{
         public string GetShortStringServicesJavaScript(string controllerPath)
         {
                 return string.Format(SssjsFormat,
-                    UmbracoConfig.For.UmbracoSettings().Content.ForceSafeAliases ? "true" : "false", controllerPath);
+                    _umbracoSettings.Content.ForceSafeAliases ? "true" : "false", controllerPath);
         }
 
         #endregion
@@ -511,10 +519,6 @@ function validateSafeAlias(id, value, immediate, callback) {{
             if (culture == null)
                 throw new ArgumentNullException("culture");
 
-#if WRTCONS
-            Console.WriteLine("STRING TYPE {0}", stringType);
-#endif
-
             // get config
             var config = GetConfig(stringType, culture);
             stringType = config.StringTypeExtend(stringType);
@@ -586,9 +590,6 @@ function validateSafeAlias(id, value, immediate, callback) {{
             var state = StateBreak;
 
             caseType &= CleanStringType.CaseMask;
-#if WRTCONS
-            Console.WriteLine("CASE {0}", caseType);
-#endif
 
             // if we apply global ToUpper or ToLower to text here
             // then we cannot break words on uppercase chars
@@ -614,13 +615,7 @@ function validateSafeAlias(id, value, immediate, callback) {{
                 var isPair = char.IsSurrogate(c);
                 if (isPair)
                     throw new NotSupportedException("Surrogate pairs are not supported.");
-#if WRTCONS
-                Console.WriteLine("CHAR '{0}' {1} {2} - {3} - {4}/{5} {6}",
-                    c,
-                    isTerm ? "term" : "!term", isUpper ? "upper" : "!upper",
-                    state,
-                    i, ipos, leading ? "leading" : "!leading");
-#endif
+
                 switch (state)
                 {
                     // within a break
@@ -654,7 +649,6 @@ function validateSafeAlias(id, value, immediate, callback) {{
                     case StateAcronym:
                         // end an acronym if char is not a term char,
                         // or if it's not uppercase / config
-                        //Console.WriteLine("acro {0} {1}", c, (config.CutAcronymOnNonUpper && isUpper == false));
                         if (isTerm == false || (config.CutAcronymOnNonUpper && isUpper == false))
                         {
                             // whether it's part of the acronym depends on whether we're greedy
@@ -727,12 +721,7 @@ function validateSafeAlias(id, value, immediate, callback) {{
             CleanStringType caseType, CultureInfo culture, bool isAcronym)
         {
             var term = input.Substring(ipos, len);
-#if WRTCONS
-            Console.WriteLine("TERM \"{0}\" {1} {2}",
-                term,
-                isAcronym ? "acronym" : "word",
-                caseType);
-#endif
+
             if (isAcronym)
             {
                 if ((caseType == CleanStringType.CamelCase && len <= 2 && opos > 0) ||

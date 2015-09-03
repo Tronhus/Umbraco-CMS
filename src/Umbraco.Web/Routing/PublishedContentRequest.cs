@@ -1,7 +1,11 @@
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
+using System.Web.Security;
 using Umbraco.Core;
 using Umbraco.Core.Configuration;
+using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.Models;
 
 using umbraco;
@@ -31,22 +35,34 @@ namespace Umbraco.Web.Routing
 		// the content request is just a data holder
 		private readonly PublishedContentRequestEngine _engine;
 
-		/// <summary>
-		/// Initializes a new instance of the <see cref="PublishedContentRequest"/> class with a specific Uri and routing context.
-		/// </summary>
-		/// <param name="uri">The request <c>Uri</c>.</param>
-		/// <param name="routingContext">A routing context.</param>
-		internal PublishedContentRequest(Uri uri, RoutingContext routingContext)
-		{
-			if (uri == null) throw new ArgumentNullException("uri");
-			if (routingContext == null) throw new ArgumentNullException("routingContext");
+	    /// <summary>
+	    /// Initializes a new instance of the <see cref="PublishedContentRequest"/> class with a specific Uri and routing context.
+	    /// </summary>
+	    /// <param name="uri">The request <c>Uri</c>.</param>
+	    /// <param name="routingContext">A routing context.</param>
+        /// <param name="getRolesForLogin">A callback method to return the roles for the provided login name when required</param>
+        /// <param name="routingConfig"></param>
+	    public PublishedContentRequest(Uri uri, RoutingContext routingContext, IWebRoutingSection routingConfig, Func<string, IEnumerable<string>> getRolesForLogin)
+	    {
+            if (uri == null) throw new ArgumentNullException("uri");
+            if (routingContext == null) throw new ArgumentNullException("routingContext");
 
-			Uri = uri;
-			RoutingContext = routingContext;
+            Uri = uri;
+            RoutingContext = routingContext;
+	        GetRolesForLogin = getRolesForLogin;
 
-			_engine = new PublishedContentRequestEngine(this);
+	        _engine = new PublishedContentRequestEngine(
+                routingConfig,
+                this);
 
             RenderingEngine = RenderingEngine.Unknown;
+	    }
+
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        [Obsolete("Use the constructor specifying all dependencies instead")]
+		public PublishedContentRequest(Uri uri, RoutingContext routingContext)
+            : this(uri, routingContext, UmbracoConfig.For.UmbracoSettings().WebRouting, s => Roles.Provider.GetRolesForUser(s))
+		{
 		}
 
 		/// <summary>
@@ -57,20 +73,19 @@ namespace Umbraco.Web.Routing
 		/// <summary>
 		/// Prepares the request.
 		/// </summary>
-		internal void Prepare()
+        public void Prepare()
 		{
 			_engine.PrepareRequest();
-		    ConfigureRequest();
 		}
 
         /// <summary>
-        /// Called after the request is prepared - after content, templates, etc... have been assigned.
+        /// Called to configure the request
         /// </summary>
         /// <remarks>
-        /// This method must be called for the PCR to work, it is automatically called after the PCR is prepared.
-        /// This method has been exposed in case developers need to configure the request manually if they've manually assigned
-        /// a content instance to the PCR. (i.e. in EnsurePublishedContentRequestAttribute )
+        /// This public method is legacy, Prepare() has been made public now which should be used and ensures the domains are assigned and
+        /// if a public content item is already assigned Prepare() now ensures that the finders are not executed.
         /// </remarks>
+        [Obsolete("Use Prepare() instead which configures the request and wires up everything correctly")]
         public void ConfigureRequest()
         {
             _engine.ConfigureRequest();
@@ -95,7 +110,7 @@ namespace Umbraco.Web.Routing
 			if (Prepared != null)
 				Prepared(this, EventArgs.Empty);
 
-		    if (!HasPublishedContent)
+		    if (HasPublishedContent == false)
                 Is404 = true; // safety
 
 		    _readonly = true;
@@ -335,10 +350,17 @@ namespace Umbraco.Web.Routing
 
 		#region Domain and Culture
 
-		/// <summary>
+	    [Obsolete("Do not use this property, use the non-legacy UmbracoDomain property instead")]
+	    public Domain Domain
+	    {
+	        get { return new Domain(UmbracoDomain); }
+	    }
+
+        //TODO: Should we publicize the setter now that we are using a non-legacy entity??
+        /// <summary>
         /// Gets or sets the content request's domain.
         /// </summary>
-        public Domain Domain { get; internal set; }
+        public IDomain UmbracoDomain { get; internal set; }
 
 		/// <summary>
 		/// Gets or sets the content request's domain Uri.
@@ -351,7 +373,7 @@ namespace Umbraco.Web.Routing
 		/// </summary>
 		public bool HasDomain
 		{
-			get { return Domain != null; }
+			get { return UmbracoDomain != null; }
 		}
 
 	    private CultureInfo _culture;
@@ -388,7 +410,9 @@ namespace Umbraco.Web.Routing
 		/// </summary>
 		public RoutingContext RoutingContext { get; private set; }
 
-		/// <summary>
+	    internal Func<string, IEnumerable<string>> GetRolesForLogin { get; private set; }
+
+	    /// <summary>
 		/// The "umbraco page" object.
 		/// </summary>
 		private page _umbracoPage;
@@ -433,7 +457,7 @@ namespace Umbraco.Web.Routing
         /// <summary>
         /// Gets a value indicating whether the content request triggers a redirect (permanent or not).
         /// </summary>
-        public bool IsRedirect { get { return !string.IsNullOrWhiteSpace(RedirectUrl); } }
+        public bool IsRedirect { get { return string.IsNullOrWhiteSpace(RedirectUrl) == false; } }
 
         /// <summary>
         /// Gets or sets a value indicating whether the redirect is permanent.

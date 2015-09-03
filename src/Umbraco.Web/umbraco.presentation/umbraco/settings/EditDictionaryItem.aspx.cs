@@ -9,6 +9,7 @@ using System.Web.UI;
 using System.Web.UI.WebControls;
 using System.Web.UI.HtmlControls;
 using umbraco.cms.presentation.Trees;
+using Umbraco.Core;
 using Umbraco.Core.IO;
 
 namespace umbraco.settings
@@ -16,13 +17,10 @@ namespace umbraco.settings
 	/// <summary>
 	/// Summary description for EditDictionaryItem.
 	/// </summary>
+    [WebformsPageTreeAuthorize(Constants.Trees.Dictionary)]
 	public partial class EditDictionaryItem : BasePages.UmbracoEnsuredPage
 	{
-	    public EditDictionaryItem()
-	    {
-            CurrentApp = BusinessLogic.DefaultApps.settings.ToString();
-
-	    }
+	    
 		protected LiteralControl keyTxt = new LiteralControl();
 		protected uicontrols.TabView tbv = new uicontrols.TabView();
 		private System.Collections.ArrayList languageFields = new System.Collections.ArrayList();
@@ -67,14 +65,21 @@ namespace umbraco.settings
 
 			if (!IsPostBack)
 			{
+			    var path = BuildPath(currentItem);
 				ClientTools
 					.SetActiveTreeType(TreeDefinitionCollection.Instance.FindTree<loadDictionary>().Tree.Alias)
-					.SyncTree(helper.Request("id"), false);
+					.SyncTree(path, false);
 			}
 
 
             Panel1.Controls.Add(p);
 		}
+
+	    private string BuildPath(cms.businesslogic.Dictionary.DictionaryItem current)
+	    {
+	        var parentPath = current.IsTopMostItem() ? "" : BuildPath(current.Parent) + ",";
+	        return parentPath + current.id;
+	    }
 
         void save_Click(object sender, EventArgs e)
         {

@@ -14,14 +14,14 @@ namespace Umbraco.Web.PropertyEditors
                 {
                     //NOTE: This is very important that we do not use .Net format's there, this format
                     // is the correct format for the JS picker we are using so you cannot capitalize the HH, they need to be 'hh'
-                    {"format", "yyyy-MM-dd hh:mm:ss"}
+                    {"format", "YYYY-MM-DD HH:mm:ss"}
                 };
         }
 
         private IDictionary<string, object> _defaultPreVals;
 
         /// <summary>
-        /// Overridden because we ONLY support Date + Time format and we don't have pre-values in the db.
+        /// Overridden because we ONLY support Date + Time format
         /// </summary>
         public override IDictionary<string, object> DefaultPreValues
         {
@@ -36,6 +36,11 @@ namespace Umbraco.Web.PropertyEditors
             editor.Validators.Add(new DateTimeValidator());
 
             return editor;
+        }
+
+        protected override PreValueEditor CreatePreValueEditor()
+        {
+            return new DatePreValueEditor();
         }
     }
 }

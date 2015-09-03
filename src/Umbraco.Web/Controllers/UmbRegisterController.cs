@@ -23,22 +23,20 @@ namespace Umbraco.Web.Controllers
 
             MembershipCreateStatus status;
             var member = Members.RegisterMember(model, out status, model.LoginOnSuccess);
-
-            // Save the password
-            var memberService = Services.MemberService;
-            var m = memberService.GetByUsername(member.UserName);
-            memberService.SavePassword(m, model.Password);
-
+            
             switch (status)
             {
                 case MembershipCreateStatus.Success:
+
+                    TempData["FormSuccess"] = true;
+
                     //if there is a specified path to redirect to then use it
                     if (model.RedirectUrl.IsNullOrWhiteSpace() == false)
                     {
                         return Redirect(model.RedirectUrl);
                     }
                     //redirect to current page by default
-                    TempData["FormSuccess"] = true;            
+                    
                     return RedirectToCurrentUmbracoPage();
                 case MembershipCreateStatus.InvalidUserName:
                     ModelState.AddModelError((model.UsernameIsEmail || model.Username == null)

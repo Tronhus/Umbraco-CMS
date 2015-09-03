@@ -12,7 +12,18 @@ namespace Umbraco.Core.Events
 	public class CancellableObjectEventArgs<T> : CancellableEventArgs
 	{
 
-		public CancellableObjectEventArgs(T eventObject, bool canCancel)
+        public CancellableObjectEventArgs(T eventObject, bool canCancel, EventMessages eventMessages)
+            : base(canCancel, eventMessages)
+        {
+            EventObject = eventObject;
+        }
+
+        public CancellableObjectEventArgs(T eventObject, EventMessages eventMessages)
+            : this(eventObject, true, eventMessages)
+        {
+        }
+
+        public CancellableObjectEventArgs(T eventObject, bool canCancel)
 			: base(canCancel)
 		{
 			EventObject = eventObject;
@@ -29,7 +40,7 @@ namespace Umbraco.Core.Events
 		/// <remarks>
 		/// This is protected so that inheritors can expose it with their own name
 		/// </remarks>
-		protected T EventObject { get; private set; }
+		protected T EventObject { get; set; }
 
 	}
 }

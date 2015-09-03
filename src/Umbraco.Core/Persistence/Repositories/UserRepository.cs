@@ -1,12 +1,14 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using Umbraco.Core;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.EntityBase;
 using Umbraco.Core.Models.Membership;
 using Umbraco.Core.Models.Rdbms;
-using Umbraco.Core.Persistence.Caching;
+
 using Umbraco.Core.Persistence.Factories;
 using Umbraco.Core.Persistence.Mappers;
 using Umbraco.Core.Persistence.Querying;
@@ -24,15 +26,8 @@ namespace Umbraco.Core.Persistence.Repositories
         private readonly IUserTypeRepository _userTypeRepository;
         private readonly CacheHelper _cacheHelper;
 
-        public UserRepository(IDatabaseUnitOfWork work, IUserTypeRepository userTypeRepository, CacheHelper cacheHelper)
-            : base(work)
-        {
-            _userTypeRepository = userTypeRepository;
-            _cacheHelper = cacheHelper;
-        }
-
-        public UserRepository(IDatabaseUnitOfWork work, IRepositoryCacheProvider cache, IUserTypeRepository userTypeRepository, CacheHelper cacheHelper)
-            : base(work, cache)
+        public UserRepository(IDatabaseUnitOfWork work, CacheHelper cacheHelper, ILogger logger, ISqlSyntaxProvider sqlSyntax, IUserTypeRepository userTypeRepository)
+            : base(work, cacheHelper, logger, sqlSyntax)
         {
             _userTypeRepository = userTypeRepository;
             _cacheHelper = cacheHelper;
@@ -59,38 +54,28 @@ namespace Umbraco.Core.Persistence.Repositories
 
         protected override IEnumerable<IUser> PerformGetAll(params int[] ids)
         {
-            if (ids.Any())
-            {
-                return PerformGetAllOnIds(ids);
-            }
-
             var sql = GetBaseQuery(false);
 
-            return ConvertFromDtos(Database.Fetch<UserDto, User2AppDto, UserDto>(new UserSectionRelator().Map, sql))
-                .ToArray(); // important so we don't iterate twice, if we don't do thsi we can end up with null vals in cache if we were caching.
-        }
-
-        private IEnumerable<IUser> PerformGetAllOnIds(params int[] ids)
-        {
-            if (ids.Any() == false) yield break;
-            foreach (var id in ids)
+            if (ids.Any())
             {
-                yield return Get(id);
+                sql.Where("umbracoUser.id in (@ids)", new {ids = ids});
             }
+            
+            return ConvertFromDtos(Database.Fetch<UserDto, User2AppDto, UserDto>(new UserSectionRelator().Map, sql))
+                    .ToArray(); // important so we don't iterate twice, if we don't do this we can end up with null values in cache if we were caching.    
         }
-
+        
         protected override IEnumerable<IUser> PerformGetByQuery(IQuery<IUser> query)
         {
             var sqlClause = GetBaseQuery(false);
             var translator = new SqlTranslator<IUser>(sqlClause, query);
             var sql = translator.Translate();
 
-            var dtos = Database.Fetch<UserDto, User2AppDto, UserDto>(new UserSectionRelator().Map, sql);
+            var dtos = Database.Fetch<UserDto, User2AppDto, UserDto>(new UserSectionRelator().Map, sql)
+                .DistinctBy(x => x.Id);
 
-            foreach (var dto in dtos.DistinctBy(x => x.Id))
-            {
-                yield return Get(dto.Id);
-            }
+            return ConvertFromDtos(dtos)
+                    .ToArray(); // important so we don't iterate twice, if we don't do this we can end up with null values in cache if we were caching.    
         }
         
         #endregion
@@ -135,9 +120,9 @@ namespace Umbraco.Core.Persistence.Repositories
                                "DELETE FROM cmsTask WHERE parentUserId = @Id",
                                "DELETE FROM umbracoUser2NodePermission WHERE userId = @Id",
                                "DELETE FROM umbracoUser2NodeNotify WHERE userId = @Id",
-                               "DELETE FROM umbracoUserLogins WHERE userId = @Id",
-                               "DELETE FROM umbracoUser2app WHERE " + SqlSyntaxContext.SqlSyntaxProvider.GetQuotedColumnName("user") + "=@Id",
-                               "DELETE FROM umbracoUser WHERE id = @Id"
+                               "DELETE FROM umbracoUser2app WHERE " + SqlSyntax.GetQuotedColumnName("user") + "=@Id",
+                               "DELETE FROM umbracoUser WHERE id = @Id",
+                               "DELETE FROM umbracoExternalLogin WHERE id = @Id"
                            };
             return list;
         }
@@ -150,6 +135,13 @@ namespace Umbraco.Core.Persistence.Repositories
         protected override void PersistNewItem(IUser entity)
         {
             var userFactory = new UserFactory(entity.UserType);
+
+            //ensure security stamp if non
+            if (entity.SecurityStamp.IsNullOrWhiteSpace())
+            {
+                entity.SecurityStamp = Guid.NewGuid().ToString();
+            }
+            
             var userDto = userFactory.BuildDto(entity);
 
             var id = Convert.ToInt32(Database.Insert(userDto));
@@ -162,23 +154,87 @@ namespace Umbraco.Core.Persistence.Repositories
                 Database.Insert(sectionDto);
             }
 
-            ((ICanBeDirty)entity).ResetDirtyProperties();
+            entity.ResetDirtyProperties();
         }
 
         protected override void PersistUpdatedItem(IUser entity)
         {
             var userFactory = new UserFactory(entity.UserType);
+
+            //ensure security stamp if non
+            if (entity.SecurityStamp.IsNullOrWhiteSpace())
+            {
+                entity.SecurityStamp = Guid.NewGuid().ToString();
+            }
+
             var userDto = userFactory.BuildDto(entity);
 
-            Database.Update(userDto);
+            var dirtyEntity = (ICanBeDirty)entity;
 
+            //build list of columns to check for saving - we don't want to save the password if it hasn't changed!
+            //List the columns to save, NOTE: would be nice to not have hard coded strings here but no real good way around that
+            var colsToSave = new Dictionary<string, string>()
+            {
+                {"userDisabled", "IsApproved"},
+                {"userNoConsole", "IsLockedOut"},
+                {"userType", "UserType"},
+                {"startStructureID", "StartContentId"},
+                {"startMediaID", "StartMediaId"},
+                {"userName", "Name"},
+                {"userLogin", "Username"},                
+                {"userEmail", "Email"},                
+                {"userLanguage", "Language"},
+                {"securityStampToken", "SecurityStamp"},
+                {"lastLockoutDate", "LastLockoutDate"},
+                {"lastPasswordChangeDate", "LastPasswordChangeDate"},
+                {"lastLoginDate", "LastLoginDate"},
+                {"failedLoginAttempts", "FailedPasswordAttempts"},
+            };
+
+            //create list of properties that have changed
+            var changedCols = colsToSave
+                .Where(col => dirtyEntity.IsPropertyDirty(col.Value))
+                .Select(col => col.Key)
+                .ToList();
+
+            // DO NOT update the password if it has not changed or if it is null or empty
+            if (dirtyEntity.IsPropertyDirty("RawPasswordValue") && entity.RawPasswordValue.IsNullOrWhiteSpace() == false)
+            {
+                changedCols.Add("userPassword");
+
+                //special case - when using ASP.Net identity the user manager will take care of updating the security stamp, however
+                // when not using ASP.Net identity (i.e. old membership providers), we'll need to take care of updating this manually
+                // so we can just detect if that property is dirty, if it's not we'll set it manually
+                if (dirtyEntity.IsPropertyDirty("SecurityStamp") == false)
+                {
+                    userDto.SecurityStampToken = entity.SecurityStamp = Guid.NewGuid().ToString();
+                    changedCols.Add("securityStampToken");
+                }
+            }
+
+            //only update the changed cols
+            if (changedCols.Count > 0)
+            {
+                Database.Update(userDto, changedCols);
+            }
+            
             //update the sections if they've changed
             var user = (User)entity;
             if (user.IsPropertyDirty("AllowedSections"))
             {
+                //now we need to delete any applications that have been removed
+                foreach (var section in user.RemovedSections)
+                {
+                    //we need to manually delete thsi record because it has a composite key
+                    Database.Delete<User2AppDto>("WHERE app=@Section AND " + SqlSyntax.GetQuotedColumnName("user") + "=@UserId",
+                        new { Section = section, UserId = (int)user.Id });
+                }
+
                 //for any that exist on the object, we need to determine if we need to update or insert
+                //NOTE: the User2AppDtos collection wil always be equal to the User.AllowedSections
                 foreach (var sectionDto in userDto.User2AppDtos)
                 {
+                    //if something has been added then insert it
                     if (user.AddedSections.Contains(sectionDto.AppAlias))
                     {
                         //we need to insert since this was added  
@@ -187,21 +243,15 @@ namespace Umbraco.Core.Persistence.Repositories
                     else
                     {
                         //we need to manually update this record because it has a composite key
-                        Database.Update<User2AppDto>("SET app=@Section WHERE app=@Section AND " + SqlSyntaxContext.SqlSyntaxProvider.GetQuotedColumnName("user") + "=@UserId",
+                        Database.Update<User2AppDto>("SET app=@Section WHERE app=@Section AND " + SqlSyntax.GetQuotedColumnName("user") + "=@UserId",
                                                      new { Section = sectionDto.AppAlias, UserId = sectionDto.UserId });
                     }
                 }
 
-                //now we need to delete any applications that have been removed
-                foreach (var section in user.RemovedSections)
-                {
-                    //we need to manually delete thsi record because it has a composite key
-                    Database.Delete<User2AppDto>("WHERE app=@Section AND " + SqlSyntaxContext.SqlSyntaxProvider.GetQuotedColumnName("user") + "=@UserId",
-                        new { Section = section, UserId = (int)user.Id });
-                }
+                
             }
 
-            ((ICanBeDirty)entity).ResetDirtyProperties();
+            entity.ResetDirtyProperties();
         }
 
         #endregion
@@ -223,10 +273,10 @@ namespace Umbraco.Core.Persistence.Repositories
         public bool Exists(string username)
         {
             var sql = new Sql();
-            var escapedUserName = PetaPocoExtensions.EscapeAtSymbols(username);
+
             sql.Select("COUNT(*)")
                 .From<UserDto>()
-                .Where<UserDto>(x => x.UserName == escapedUserName);
+                .Where<UserDto>(x => x.UserName == username);
 
             return Database.ExecuteScalar<int>(sql) > 0;
         }
@@ -248,7 +298,7 @@ namespace Umbraco.Core.Persistence.Repositories
 
             var sql = GetBaseQuery(false);
             var innerSql = GetBaseQuery("umbracoUser.id");
-            innerSql.Where("umbracoUser2app.app = " + SqlSyntaxContext.SqlSyntaxProvider.GetQuotedValue(sectionAlias));
+            innerSql.Where("umbracoUser2app.app = " + SqlSyntax.GetQuotedValue(sectionAlias));
             sql.Where(string.Format("umbracoUser.id IN ({0})", innerSql.SQL));
 
             return ConvertFromDtos(Database.Fetch<UserDto, User2AppDto, UserDto>(new UserSectionRelator().Map, sql));
@@ -308,7 +358,8 @@ namespace Umbraco.Core.Persistence.Repositories
                 return Enumerable.Empty<IUser>();
             }
 
-            var result = GetAll(pagedResult.Items.Select(x => x.Id).ToArray());
+            var ids = pagedResult.Items.Select(x => x.Id).ToArray();
+            var result = ids.Length == 0 ? Enumerable.Empty<IUser>() : GetAll(ids);
 
             //now we need to ensure this result is also ordered by the same order by clause
             return result.OrderBy(orderBy.Compile());
@@ -322,7 +373,7 @@ namespace Umbraco.Core.Persistence.Repositories
         /// <returns></returns>        
         public IEnumerable<EntityPermission> GetUserPermissionsForEntities(int userId, params int[] entityIds)
         {
-            var repo = new PermissionRepository<IContent>(UnitOfWork, _cacheHelper);
+            var repo = new PermissionRepository<IContent>(UnitOfWork, _cacheHelper, SqlSyntax);
             return repo.GetUserPermissionsForEntities(userId, entityIds);
         }
 
@@ -334,33 +385,48 @@ namespace Umbraco.Core.Persistence.Repositories
         /// <param name="entityIds"></param>
         public void ReplaceUserPermissions(int userId, IEnumerable<char> permissions, params int[] entityIds)
         {
-            var repo = new PermissionRepository<IContent>(UnitOfWork, _cacheHelper);
+            var repo = new PermissionRepository<IContent>(UnitOfWork, _cacheHelper, SqlSyntax);
             repo.ReplaceUserPermissions(userId, permissions, entityIds);
+        }
+
+        /// <summary>
+        /// Assigns the same permission set for a single user to any number of entities
+        /// </summary>
+        /// <param name="userId"></param>
+        /// <param name="permission"></param>
+        /// <param name="entityIds"></param>
+        public void AssignUserPermission(int userId, char permission, params int[] entityIds)
+        {
+            var repo = new PermissionRepository<IContent>(UnitOfWork, _cacheHelper, SqlSyntax);
+            repo.AssignUserPermission(userId, permission, entityIds);
         }
 
         #endregion
 
         private IEnumerable<IUser> ConvertFromDtos(IEnumerable<UserDto> dtos)
         {
-            var foundUserTypes = new Dictionary<short, IUserType>();
+            var userTypeIds = dtos.Select(x => Convert.ToInt32(x.Type)).ToArray();
+
+            var allUserTypes = userTypeIds.Length == 0 ? Enumerable.Empty<IUserType>() : _userTypeRepository.GetAll(userTypeIds);
+
             return dtos.Select(dto =>
-                {
-                    //first we need to get the user type
-                    IUserType userType;
-                    if (foundUserTypes.ContainsKey(dto.Type))
-                    {
-                        userType = foundUserTypes[dto.Type];
-                    }
-                    else
-                    {
-                        userType = _userTypeRepository.Get(dto.Type);
-                        //put it in the local cache
-                        foundUserTypes.Add(dto.Type, userType);
-                    }
+                {   
+                    var userType = allUserTypes.Single(x => x.Id == dto.Type);
 
                     var userFactory = new UserFactory(userType);
                     return userFactory.BuildEntity(dto);
                 });
-        } 
+        }
+
+        /// <summary>
+        /// Dispose disposable properties
+        /// </summary>
+        /// <remarks>
+        /// Ensure the unit of work is disposed
+        /// </remarks>
+        protected override void DisposeResources()
+        {
+            _userTypeRepository.Dispose();
+        }
     }
 }

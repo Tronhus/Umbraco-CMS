@@ -5,7 +5,7 @@ using Umbraco.Core.Models.Rdbms;
 
 namespace Umbraco.Core.Persistence.Factories
 {
-    internal class MacroFactory : IEntityFactory<IMacro, MacroDto>
+    internal class MacroFactory 
     {
         #region Implementation of IEntityFactory<Language,LanguageDto>
 
@@ -42,7 +42,7 @@ namespace Umbraco.Core.Persistence.Factories
                 };
 
             if (entity.HasIdentity)
-                dto.Id = short.Parse(entity.Id.ToString(CultureInfo.InvariantCulture));
+                dto.Id = int.Parse(entity.Id.ToString(CultureInfo.InvariantCulture));
 
             return dto;
         }

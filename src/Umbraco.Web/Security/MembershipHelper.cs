@@ -8,9 +8,11 @@ using System.Web.Security;
 using Umbraco.Core;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
+using Umbraco.Core.Models.PublishedContent;
 using Umbraco.Core.Security;
 using Umbraco.Web.Models;
 using Umbraco.Web.PublishedCache;
+using Umbraco.Core.Cache;
 using MPE = global::Umbraco.Core.Security.MembershipProviderExtensions;
 
 namespace Umbraco.Web.Security
@@ -21,23 +23,43 @@ namespace Umbraco.Web.Security
     /// </summary>
     public class MembershipHelper
     {
+        private readonly MembershipProvider _membershipProvider;
+        private readonly RoleProvider _roleProvider;
         private readonly ApplicationContext _applicationContext;
         private readonly HttpContextBase _httpContext;
 
         #region Constructors
         public MembershipHelper(ApplicationContext applicationContext, HttpContextBase httpContext)
+            : this(applicationContext, httpContext, MPE.GetMembersMembershipProvider(), Roles.Provider)
+        {            
+        }
+
+        public MembershipHelper(ApplicationContext applicationContext, HttpContextBase httpContext, MembershipProvider membershipProvider, RoleProvider roleProvider)
         {
             if (applicationContext == null) throw new ArgumentNullException("applicationContext");
             if (httpContext == null) throw new ArgumentNullException("httpContext");
+            if (membershipProvider == null) throw new ArgumentNullException("membershipProvider");
+            if (roleProvider == null) throw new ArgumentNullException("roleProvider");
             _applicationContext = applicationContext;
             _httpContext = httpContext;
-        }
+            _membershipProvider = membershipProvider;
+            _roleProvider = roleProvider;
+        }   
 
         public MembershipHelper(UmbracoContext umbracoContext)
+            : this(umbracoContext, MPE.GetMembersMembershipProvider(), Roles.Provider)
+        {            
+        }
+
+        public MembershipHelper(UmbracoContext umbracoContext, MembershipProvider membershipProvider, RoleProvider roleProvider)
         {
             if (umbracoContext == null) throw new ArgumentNullException("umbracoContext");
+            if (membershipProvider == null) throw new ArgumentNullException("membershipProvider");
+            if (roleProvider == null) throw new ArgumentNullException("roleProvider");
             _httpContext = umbracoContext.HttpContext;
             _applicationContext = umbracoContext.Application;
+            _membershipProvider = membershipProvider;
+            _roleProvider = roleProvider;
         }
         #endregion
 
@@ -47,7 +69,7 @@ namespace Umbraco.Web.Security
         /// <returns></returns>
         public bool IsUmbracoMembershipProviderActive()
         {
-            var provider = MPE.GetMembersMembershipProvider();
+            var provider = _membershipProvider;
             return provider.IsUmbracoMembershipProvider();
         }
 
@@ -58,7 +80,7 @@ namespace Umbraco.Web.Security
         /// <returns>
         /// The updated MembershipUser object
         /// </returns>
-        public Attempt<MembershipUser> UpdateMemberProfile(ProfileModel model)
+        public virtual Attempt<MembershipUser> UpdateMemberProfile(ProfileModel model)
         {
             if (IsLoggedIn() == false)
             {
@@ -66,7 +88,7 @@ namespace Umbraco.Web.Security
             }
 
             //get the current membership user
-            var provider = MPE.GetMembersMembershipProvider();
+            var provider = _membershipProvider;
             var membershipUser = provider.GetCurrentUser();
             //NOTE: This should never happen since they are logged in
             if (membershipUser == null) throw new InvalidOperationException("Could not find member with username " + _httpContext.User.Identity.Name);
@@ -86,8 +108,8 @@ namespace Umbraco.Web.Security
                 //This will occur if an email already exists!
                 return Attempt<MembershipUser>.Fail(ex);
             }
-            
-            var member = GetCurrentMember();
+
+            var member = GetCurrentPersistedMember();
 
             //NOTE: If changing the username is a requirement, than that needs to be done via the IMember directly since MembershipProvider's natively do 
             // not support changing a username! 
@@ -103,9 +125,7 @@ namespace Umbraco.Web.Security
                     .Where(p => member.ContentType.PropertyTypeExists(p.Alias))
                     .Where(property => member.Properties.Contains(property.Alias))
                     //needs to be editable
-                    .Where(p => member.ContentType.MemberCanEditProperty(p.Alias))
-                    //needs to have a value
-                    .Where(p => p.Value != null))
+                    .Where(p => member.ContentType.MemberCanEditProperty(p.Alias)))
                 {
                     member.Properties[property.Alias].Value = property.Value;
                 }
@@ -128,12 +148,12 @@ namespace Umbraco.Web.Security
         /// true to log the member in upon successful registration
         /// </param>
         /// <returns></returns>
-        public MembershipUser RegisterMember(RegisterModel model, out MembershipCreateStatus status, bool logMemberIn = true)
+        public virtual MembershipUser RegisterMember(RegisterModel model, out MembershipCreateStatus status, bool logMemberIn = true)
         {
             model.Username = (model.UsernameIsEmail || model.Username == null) ? model.Email : model.Username;
 
             MembershipUser membershipUser;
-            var provider = MPE.GetMembersMembershipProvider();
+            var provider = _membershipProvider;
             //update their real name 
             if (provider.IsUmbracoMembershipProvider())
             {
@@ -170,11 +190,14 @@ namespace Umbraco.Web.Security
                 if (status != MembershipCreateStatus.Success) return null;
             }
 
-            //Set member online
-            provider.GetUser(model.Username, true);
-
-            //Log them in
-            FormsAuthentication.SetAuthCookie(membershipUser.UserName, true);
+            if (logMemberIn)
+            {
+                //Set member online
+                provider.GetUser(model.Username, true);
+    
+                //Log them in
+                FormsAuthentication.SetAuthCookie(membershipUser.UserName, model.CreatePersistentLoginCookie);
+            }
 
             return membershipUser;
         }
@@ -185,9 +208,9 @@ namespace Umbraco.Web.Security
         /// <param name="username"></param>
         /// <param name="password"></param>
         /// <returns></returns>
-        public bool Login(string username, string password)
+        public virtual bool Login(string username, string password)
         {
-            var provider = MPE.GetMembersMembershipProvider();
+            var provider = _membershipProvider;
             //Validate credentials
             if (provider.ValidateUser(username, password) == false)
             {
@@ -206,54 +229,106 @@ namespace Umbraco.Web.Security
             return true;
         }
 
+        /// <summary>
+        /// Logs out the current member
+        /// </summary>
+        public virtual void Logout()
+        {
+            FormsAuthentication.SignOut();
+        }
+
         #region Querying for front-end
 
-        public IPublishedContent GetByProviderKey(object key)
+        public virtual IPublishedContent GetByProviderKey(object key)
         {
-            var provider = MPE.GetMembersMembershipProvider();
-            if (provider.IsUmbracoMembershipProvider() == false)
-            {
-                throw new NotSupportedException("Cannot access this method unless the Umbraco membership provider is active");
-            }
+            return _applicationContext.ApplicationCache.RequestCache.GetCacheItem<IPublishedContent>(
+                GetCacheKey("GetByProviderKey", key), () =>
+                {
+                    var provider = _membershipProvider;
+                    if (provider.IsUmbracoMembershipProvider() == false)
+                    {
+                        throw new NotSupportedException("Cannot access this method unless the Umbraco membership provider is active");
+                    }
 
-            var result = _applicationContext.Services.MemberService.GetByProviderKey(key);
-            return result == null ? null : new MemberPublishedContent(result, provider.GetUser(result.Username, false));
+                    var result = _applicationContext.Services.MemberService.GetByProviderKey(key);
+                    return result == null ? null : new MemberPublishedContent(result).CreateModel();
+                });
         }
 
-        public IPublishedContent GetById(int memberId)
+        public virtual IPublishedContent GetById(int memberId)
         {
-            var provider = MPE.GetMembersMembershipProvider();
-            if (provider.IsUmbracoMembershipProvider() == false)
-            {
-                throw new NotSupportedException("Cannot access this method unless the Umbraco membership provider is active");
-            }
+            return _applicationContext.ApplicationCache.RequestCache.GetCacheItem<IPublishedContent>(
+                GetCacheKey("GetById", memberId), () =>
+                {
+                    var provider = _membershipProvider;
+                    if (provider.IsUmbracoMembershipProvider() == false)
+                    {
+                        throw new NotSupportedException("Cannot access this method unless the Umbraco membership provider is active");
+                    }
 
-            var result = _applicationContext.Services.MemberService.GetById(memberId);
-            return result == null ? null : new MemberPublishedContent(result, provider.GetUser(result.Username, false));
+                    var result = _applicationContext.Services.MemberService.GetById(memberId);
+                    return result == null ? null : new MemberPublishedContent(result).CreateModel();
+                });
         }
 
-        public IPublishedContent GetByUsername(string username)
+        public virtual IPublishedContent GetByUsername(string username)
         {
-            var provider = MPE.GetMembersMembershipProvider();
-            if (provider.IsUmbracoMembershipProvider() == false)
-            {
-                throw new NotSupportedException("Cannot access this method unless the Umbraco membership provider is active");
-            }
+            return _applicationContext.ApplicationCache.RequestCache.GetCacheItem<IPublishedContent>(
+                GetCacheKey("GetByUsername", username), () =>
+                {
+                    var provider = _membershipProvider;
+                    if (provider.IsUmbracoMembershipProvider() == false)
+                    {
+                        throw new NotSupportedException("Cannot access this method unless the Umbraco membership provider is active");
+                    }
 
-            var result = _applicationContext.Services.MemberService.GetByUsername(username);
-            return result == null ? null : new MemberPublishedContent(result, provider.GetUser(result.Username, false));
+                    var result = _applicationContext.Services.MemberService.GetByUsername(username);
+                    return result == null ? null : new MemberPublishedContent(result).CreateModel();
+                });
         }
 
-        public IPublishedContent GetByEmail(string email)
+        public virtual IPublishedContent GetByEmail(string email)
         {
-            var provider = MPE.GetMembersMembershipProvider();
-            if (provider.IsUmbracoMembershipProvider() == false)
-            {
-                throw new NotSupportedException("Cannot access this method unless the Umbraco membership provider is active");
-            }
+            return _applicationContext.ApplicationCache.RequestCache.GetCacheItem<IPublishedContent>(
+                GetCacheKey("GetByEmail", email), () =>
+                {
+                    var provider = _membershipProvider;
+                    if (provider.IsUmbracoMembershipProvider() == false)
+                    {
+                        throw new NotSupportedException("Cannot access this method unless the Umbraco membership provider is active");
+                    }
 
-            var result = _applicationContext.Services.MemberService.GetByEmail(email);
-            return result == null ? null : new MemberPublishedContent(result, provider.GetUser(result.Username, false));
+                    var result = _applicationContext.Services.MemberService.GetByEmail(email);
+                    return result == null ? null : new MemberPublishedContent(result).CreateModel();
+                });
+        }
+
+        /// <summary>
+        /// Returns the currently logged in member as IPublishedContent
+        /// </summary>
+        /// <returns></returns>
+        public virtual IPublishedContent GetCurrentMember()
+        {
+            if (IsLoggedIn() == false)
+            {
+                return null;
+            }
+            var result = GetCurrentPersistedMember();
+            return result == null ? null : new MemberPublishedContent(result).CreateModel();
+        }
+
+        /// <summary>
+        /// Returns the currently logged in member id, -1 if they are not logged in
+        /// </summary>
+        /// <returns></returns>
+        public int GetCurrentMemberId()
+        {
+            if (IsLoggedIn() == false)
+            {
+                return -1;
+            }
+            var result = GetCurrentMember();
+            return result == null ? -1 : result.Id;
         }
         
         #endregion
@@ -264,19 +339,19 @@ namespace Umbraco.Web.Security
         /// profile properties
         /// </summary>
         /// <returns></returns>
-        public ProfileModel GetCurrentMemberProfileModel()
+        public virtual ProfileModel GetCurrentMemberProfileModel()
         {
             if (IsLoggedIn() == false)
             {
                 return null;
             }
 
-            var provider = MPE.GetMembersMembershipProvider();
+            var provider = _membershipProvider;
 
             if (provider.IsUmbracoMembershipProvider())
             {                
-                var membershipUser = provider.GetCurrentUser();
-                var member = GetCurrentMember();
+                var membershipUser = provider.GetCurrentUserOnline();
+                var member = GetCurrentPersistedMember();
                 //this shouldn't happen but will if the member is deleted in the back office while the member is trying
                 // to use the front-end!
                 if (member == null)
@@ -323,9 +398,9 @@ namespace Umbraco.Web.Security
         /// </summary>
         /// <param name="memberTypeAlias"></param>
         /// <returns></returns>
-        public RegisterModel CreateRegistrationModel(string memberTypeAlias = null)
+        public virtual RegisterModel CreateRegistrationModel(string memberTypeAlias = null)
         {
-            var provider = MPE.GetMembersMembershipProvider();
+            var provider = _membershipProvider;
             if (provider.IsUmbracoMembershipProvider())
             {
                 memberTypeAlias = memberTypeAlias ?? Constants.Conventions.MemberTypes.DefaultAlias;
@@ -358,7 +433,7 @@ namespace Umbraco.Web.Security
                 if (member != null)
                 {
                     var propValue = member.Properties[prop.Alias];
-                    if (propValue != null)
+                    if (propValue != null && propValue.Value != null)
                     {
                         value = propValue.Value.ToString();
                     }    
@@ -409,7 +484,7 @@ namespace Umbraco.Web.Security
         /// Returns the login status model of the currently logged in member, if no member is logged in it returns null;
         /// </summary>
         /// <returns></returns>
-        public LoginStatusModel GetCurrentLoginStatus()
+        public virtual LoginStatusModel GetCurrentLoginStatus()
         {
             var model = LoginStatusModel.CreateModel();
 
@@ -419,11 +494,11 @@ namespace Umbraco.Web.Security
                 return model;
             }
 
-            var provider = MPE.GetMembersMembershipProvider();
+            var provider = _membershipProvider;
 
             if (provider.IsUmbracoMembershipProvider())
             {
-                var member = GetCurrentMember();
+                var member = GetCurrentPersistedMember();
                 //this shouldn't happen but will if the member is deleted in the back office while the member is trying
                 // to use the front-end!
                 if (member == null)
@@ -439,7 +514,7 @@ namespace Umbraco.Web.Security
             }
             else
             {
-                var member = provider.GetCurrentUser();
+                var member = provider.GetCurrentUserOnline();
                 //this shouldn't happen but will if the member is deleted in the back office while the member is trying
                 // to use the front-end!
                 if (member == null)
@@ -468,6 +543,14 @@ namespace Umbraco.Web.Security
         }
 
         /// <summary>
+        /// Returns the currently logged in username
+        /// </summary>
+        public string CurrentUserName
+        {
+            get { return _httpContext.User.Identity.Name; }
+        }
+
+        /// <summary>
         /// Returns true or false if the currently logged in member is authorized based on the parameters provided
         /// </summary>
         /// <param name="allowAll"></param>
@@ -475,7 +558,7 @@ namespace Umbraco.Web.Security
         /// <param name="allowGroups"></param>
         /// <param name="allowMembers"></param>
         /// <returns></returns>
-        public bool IsMemberAuthorized(
+        public virtual bool IsMemberAuthorized(
             bool allowAll = false,
             IEnumerable<string> allowTypes = null,
             IEnumerable<string> allowGroups = null,
@@ -501,12 +584,12 @@ namespace Umbraco.Web.Security
             }
             else
             {
-                var provider = MPE.GetMembersMembershipProvider();
+                var provider = _membershipProvider;
 
                 string username;
                 if (provider.IsUmbracoMembershipProvider())
                 {
-                    var member = GetCurrentMember();
+                    var member = GetCurrentPersistedMember();
                     username = member.Username;
                     // If types defined, check member is of one of those types
                     var allowTypesList = allowTypes as IList<string> ?? allowTypes.ToList();
@@ -534,7 +617,7 @@ namespace Umbraco.Web.Security
                 if (allowAction && allowGroupsList.Any(allowGroup => allowGroup != string.Empty))
                 {
                     // Allow only if member is assigned to a group in the list
-                    var groups = Roles.GetRolesForUser(username);
+                    var groups = _roleProvider.GetRolesForUser(username);
                     allowAction = allowGroupsList.Select(s => s.ToLowerInvariant()).Intersect(groups.Select(myGroup => myGroup.ToLowerInvariant())).Any();
                 }
 
@@ -551,7 +634,7 @@ namespace Umbraco.Web.Security
         /// <param name="passwordModel"></param>
         /// <param name="membershipProviderName"></param>
         /// <returns></returns>
-        public Attempt<PasswordChangedModel> ChangePassword(string username, ChangingPasswordModel passwordModel, string membershipProviderName)
+        public virtual Attempt<PasswordChangedModel> ChangePassword(string username, ChangingPasswordModel passwordModel, string membershipProviderName)
         {
             var provider = Membership.Providers[membershipProviderName];
             if (provider == null)
@@ -568,7 +651,7 @@ namespace Umbraco.Web.Security
         /// <param name="passwordModel"></param>
         /// <param name="membershipProvider"></param>
         /// <returns></returns>        
-        public Attempt<PasswordChangedModel> ChangePassword(string username, ChangingPasswordModel passwordModel, MembershipProvider membershipProvider)
+        public virtual Attempt<PasswordChangedModel> ChangePassword(string username, ChangingPasswordModel passwordModel, MembershipProvider membershipProvider)
         {
             // YES! It is completely insane how many options you have to take into account based on the membership provider. yikes!        
 
@@ -751,22 +834,37 @@ namespace Umbraco.Web.Security
 
             return Attempt<MembershipUser>.Fail(member);
         }
-
+        
         /// <summary>
         /// Returns the currently logged in IMember object - this should never be exposed to the front-end since it's returning a business logic entity!
         /// </summary>
         /// <returns></returns>
-        private IMember GetCurrentMember()
+        private IMember GetCurrentPersistedMember()
         {
-            var provider = MPE.GetMembersMembershipProvider();
+            return _applicationContext.ApplicationCache.RequestCache.GetCacheItem<IMember>(
+                GetCacheKey("GetCurrentPersistedMember"), () =>
+                {
+                    var provider = _membershipProvider;
 
-            if (provider.IsUmbracoMembershipProvider() == false)
+                    if (provider.IsUmbracoMembershipProvider() == false)
+                    {
+                        throw new NotSupportedException("An IMember model can only be retreived when using the built-in Umbraco membership providers");
+                    }
+                    var username = provider.GetCurrentUserName();
+                    var member = _applicationContext.Services.MemberService.GetByUsername(username);
+                    return member;
+                });
+        }
+
+        private string GetCacheKey(string key, params object[] additional)
+        {
+            var sb = new StringBuilder(string.Format("{0}-{1}", typeof (MembershipHelper).Name, key));
+            foreach (var s in additional)
             {
-                throw new NotSupportedException("An IMember model can only be retreived when using the built-in Umbraco membership providers");
+                sb.Append("-");
+                sb.Append(s);
             }
-            var username = provider.GetCurrentUserName();
-            var member = _applicationContext.Services.MemberService.GetByUsername(username);
-            return member;
+            return sb.ToString();
         }
 
     }

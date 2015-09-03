@@ -5,6 +5,7 @@ using System.Collections.Specialized;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
+using Umbraco.Core.Models.EntityBase;
 
 namespace Umbraco.Core.Models
 {
@@ -13,14 +14,16 @@ namespace Umbraco.Core.Models
     /// </summary>
     [Serializable]
     [DataContract(IsReference = true)]
-    public class PropertyCollection : KeyedCollection<string, Property>, INotifyCollectionChanged
+    public class PropertyCollection : KeyedCollection<string, Property>, INotifyCollectionChanged, IDeepCloneable
     {
-        private readonly ReaderWriterLockSlim _addLocker = new ReaderWriterLockSlim();
+        private readonly object _addLocker = new object();
         internal Action OnAdd;
         internal Func<Property, bool> ValidateAdd { get; set; }
 
         internal PropertyCollection()
-        {}
+            : base(StringComparer.InvariantCultureIgnoreCase)
+        {
+        }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="PropertyCollection"/> class with a delegate responsible for validating the addition of <see cref="Property"/> instances.
@@ -28,11 +31,13 @@ namespace Umbraco.Core.Models
         /// <param name="validationCallback">The validation callback.</param>
         /// <remarks></remarks>
         internal PropertyCollection(Func<Property, bool> validationCallback)
+            : this()
         {
             ValidateAdd = validationCallback;
         }
 
         public PropertyCollection(IEnumerable<Property> properties)
+            : this()
         {
             Reset(properties);
         }
@@ -77,7 +82,7 @@ namespace Umbraco.Core.Models
 
         internal new void Add(Property item)
         {
-            using (new WriteLock(_addLocker))
+            lock (_addLocker)
             {
                 var key = GetKeyForItem(item);
                 if (key != null)
@@ -112,14 +117,14 @@ namespace Umbraco.Core.Models
         /// <remarks></remarks>
         public new bool Contains(string propertyTypeAlias)
         {
-            return this.Any(x => x.Alias == propertyTypeAlias);
+            return base.Contains(propertyTypeAlias);
         }
 
         public int IndexOfKey(string key)
         {
             for (var i = 0; i < this.Count; i++)
             {
-                if (this[i].Alias == key)
+                if (this[i].Alias.InvariantEquals(key))
                 {
                     return i;
                 }
@@ -144,7 +149,7 @@ namespace Umbraco.Core.Models
         {
             get
             {
-                return this.FirstOrDefault(x => x.Alias == propertyType.Alias);
+                return this.FirstOrDefault(x => x.Alias.InvariantEquals(propertyType.Alias));
             }
         }
 
@@ -164,7 +169,7 @@ namespace Umbraco.Core.Models
         /// <param name="propertyTypes">List of PropertyType</param>
         protected internal void EnsurePropertyTypes(IEnumerable<PropertyType> propertyTypes)
         {
-            if(/*!this.Any() &&*/ propertyTypes != null)
+            if (/*!this.Any() &&*/ propertyTypes != null)
             {
                 foreach (var propertyType in propertyTypes)
                 {
@@ -179,7 +184,7 @@ namespace Umbraco.Core.Models
         /// <param name="propertyTypes">List of PropertyType</param>
         protected internal void EnsureCleanPropertyTypes(IEnumerable<PropertyType> propertyTypes)
         {
-            if(propertyTypes != null)
+            if (propertyTypes != null)
             {
                 //Remove PropertyTypes that doesn't exist in the list of new PropertyTypes
                 var aliases = this.Select(p => p.Alias).Except(propertyTypes.Select(x => x.Alias)).ToList();
@@ -194,6 +199,20 @@ namespace Umbraco.Core.Models
                     Add(new Property(propertyType));
                 }
             }
+        }
+
+        /// <summary>
+        /// Create a deep clone of this property collection
+        /// </summary>
+        /// <returns></returns>
+        public object DeepClone()
+        {
+            var newList = new PropertyCollection();
+            foreach (var p in this)
+            {
+                newList.Add((Property)p.DeepClone());
+            }
+            return newList;
         }
     }
 }

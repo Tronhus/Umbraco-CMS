@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Serialization;
@@ -93,13 +95,7 @@ namespace Umbraco.Core.Models
         [DataMember]
         public virtual ITemplate Template
         {
-            get
-            {
-                if (_template == null)
-                    return _contentType.DefaultTemplate;
-
-                return _template;
-            }
+            get { return _template; }
             set
             {
                 SetPropertyValueAndDetectChanges(o =>
@@ -158,10 +154,7 @@ namespace Umbraco.Core.Models
         /// <summary>
         /// Language of the data contained within this Content object.
         /// </summary>
-        /// <remarks>
-        /// Left internal until multilingual support is implemented.
-        /// </remarks>
-        [DataMember]
+        [Obsolete("This is not used and will be removed from the codebase in future versions")]
         public string Language
         {
             get { return _language; }
@@ -232,6 +225,7 @@ namespace Umbraco.Core.Models
         /// <remarks>
         /// This Property is kept internal until localization is introduced.
         /// </remarks>
+        [DataMember]
         internal string NodeName
         {
             get { return _nodeName; }
@@ -248,6 +242,7 @@ namespace Umbraco.Core.Models
         /// <summary>
         /// Used internally to track if permissions have been changed during the saving process for this entity
         /// </summary>
+        [IgnoreDataMember]
         internal bool PermissionsChanged
         {
             get { return _permissionsChanged; }
@@ -314,7 +309,19 @@ namespace Umbraco.Core.Models
             PublishedState = state;
         }
 
+        [DataMember]
         internal PublishedState PublishedState { get; set; }
+
+        /// <summary>
+        /// Gets or sets the unique identifier of the published version, if any.
+        /// </summary>
+        [IgnoreDataMember]
+        public Guid PublishedVersionGuid { get; internal set; }
+
+        /// <summary>
+        /// Gets a value indicating whether the content has a published version.
+        /// </summary>
+        public bool HasPublishedVersion { get { return PublishedVersionGuid != default(Guid); } }
 
         /// <summary>
         /// Changes the Trashed state of the content object
@@ -332,85 +339,7 @@ namespace Umbraco.Core.Models
                 ChangePublishedState(PublishedState.Unpublished);
             }
         }
-
-        /// <summary>
-        /// Creates a clone of the current entity
-        /// </summary>
-        /// <returns></returns>
-        public IContent Clone()
-        {
-            var clone = (Content)this.MemberwiseClone();
-            clone.Key = Guid.Empty;
-            clone.Version = Guid.NewGuid();
-            clone.ResetIdentity();
-
-            foreach (var property in clone.Properties)
-            {
-                property.ResetIdentity();
-                property.Version = clone.Version;
-            }
-
-            return clone;
-        }
-
-        /// <summary>
-        /// Indicates whether a specific property on the current <see cref="IContent"/> entity is dirty.
-        /// </summary>
-        /// <param name="propertyName">Name of the property to check</param>
-        /// <returns>True if Property is dirty, otherwise False</returns>
-        public override bool IsPropertyDirty(string propertyName)
-        {
-            bool existsInEntity = base.IsPropertyDirty(propertyName);
-            if (existsInEntity)
-                return true;
-
-            return Properties.Any(x => x.IsPropertyDirty(propertyName));
-        }
-
-        /// <summary>
-        /// Indicates whether the current entity is dirty.
-        /// </summary>
-        /// <returns>True if entity is dirty, otherwise False</returns>
-        public override bool IsDirty()
-        {
-            return IsEntityDirty() || IsAnyUserPropertyDirty();
-        }
-
-        /// <summary>
-        /// Returns true if only the entity properties are direty
-        /// </summary>
-        /// <returns></returns>
-        internal bool IsEntityDirty()
-        {
-            return base.IsDirty();
-        }
-
-        /// <summary>
-        /// Returns true if any of the properties are dirty
-        /// </summary>
-        /// <returns></returns>
-        internal bool IsAnyUserPropertyDirty()
-        {
-            return Properties.Any(x => x.IsDirty());
-        }
-
-        /// <summary>
-        /// Resets dirty properties by clearing the dictionary used to track changes.
-        /// </summary>
-        /// <remarks>
-        /// Please note that resetting the dirty properties could potentially
-        /// obstruct the saving of a new or updated entity.
-        /// </remarks>
-        public override void ResetDirtyProperties()
-        {
-            base.ResetDirtyProperties();
-
-            foreach (var property in Properties)
-            {
-                property.ResetDirtyProperties();
-            }
-        }
-
+        
         /// <summary>
         /// Method to call when Entity is being saved
         /// </summary>
@@ -431,6 +360,52 @@ namespace Umbraco.Core.Models
         {
             base.UpdatingEntity();
             Version = Guid.NewGuid();
+        }
+
+        /// <summary>
+        /// Creates a deep clone of the current entity with its identity and it's property identities reset
+        /// </summary>
+        /// <returns></returns>
+        [Obsolete("Use DeepCloneWithResetIdentities instead")]
+        public IContent Clone()
+        {
+            return DeepCloneWithResetIdentities();
+        }
+
+        /// <summary>
+        /// Creates a deep clone of the current entity with its identity and it's property identities reset
+        /// </summary>
+        /// <returns></returns>
+        public IContent DeepCloneWithResetIdentities()
+        {
+            var clone = (Content)DeepClone();
+            clone.Key = Guid.Empty;
+            clone.Version = Guid.NewGuid();
+            clone.ResetIdentity();
+
+            foreach (var property in clone.Properties)
+            {
+                property.ResetIdentity();
+                property.Version = clone.Version;
+            }
+
+            return clone;
+        }
+
+        public override object DeepClone()
+        {
+            var clone = (Content)base.DeepClone();
+            //turn off change tracking
+            clone.DisableChangeTracking();
+            //need to manually clone this since it's not settable
+            clone._contentType = (IContentType)ContentType.DeepClone();
+            //this shouldn't really be needed since we're not tracking
+            clone.ResetDirtyProperties(false);
+            //re-enable tracking
+            clone.EnableChangeTracking();
+
+            return clone;
+
         }
     }
 }

@@ -6,10 +6,8 @@ using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
-using Umbraco.Core.Configuration;
 using Umbraco.Core.IO;
-
+using Umbraco.Core.Media.Exif;
 
 namespace Umbraco.Core.Media
 {
@@ -18,6 +16,52 @@ namespace Umbraco.Core.Media
     /// </summary>
     internal static class ImageHelper
     {
+        /// <summary>
+        /// Gets the dimensions of an image based on a stream
+        /// </summary>
+        /// <param name="imageStream"></param>
+        /// <returns></returns>
+        /// <remarks>
+        /// First try with EXIF, this is because it is insanely faster and doesn't use any memory to read exif data than to load in the entire
+        /// image via GDI. Otherwise loading an image into GDI consumes a crazy amount of memory on large images.
+        /// 
+        /// Of course EXIF data might not exist in every file and can only exist in JPGs
+        /// </remarks>
+        public static Size GetDimensions(Stream imageStream)
+        {
+            //Try to load with exif 
+            try
+            {
+                var jpgInfo = ImageFile.FromStream(imageStream);
+
+                if (jpgInfo.Format != ImageFileFormat.Unknown
+                    && jpgInfo.Properties.ContainsKey(ExifTag.PixelYDimension)
+                    && jpgInfo.Properties.ContainsKey(ExifTag.PixelXDimension))
+                {
+                    var height = Convert.ToInt32(jpgInfo.Properties[ExifTag.PixelYDimension].Value);
+                    var width = Convert.ToInt32(jpgInfo.Properties[ExifTag.PixelXDimension].Value);
+                    if (height > 0 && width > 0)
+                    {
+                        return new Size(width, height);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                //We will just swallow, just means we can't read exif data, we don't want to log an error either
+            }
+
+            //we have no choice but to try to read in via GDI
+            using (var image = Image.FromStream(imageStream))
+            {
+
+                var fileWidth = image.Width;
+                var fileHeight = image.Height;
+                return new Size(fileWidth, fileHeight);
+            }
+           
+        }
+
         public static string GetMimeType(this Image image)
         {
             var format = image.RawFormat;
@@ -44,14 +88,21 @@ namespace Umbraco.Core.Media
 
             var result = new List<ResizedImage>();
 
-            var allSizes = new List<int> {100, 500};
-            allSizes.AddRange(additionalThumbSizes.Where(x => x > 0).Distinct());
+            var allSizesDictionary = new Dictionary<int,string> {{100,"thumb"}, {500,"big-thumb"}};
+            
+            //combine the static dictionary with the additional sizes with only unique values
+            var allSizes = allSizesDictionary.Select(kv => kv.Key)
+                .Union(additionalThumbSizes.Where(x => x > 0).Distinct());
 
-            foreach (var s in allSizes)
+            var sizesDictionary = allSizes.ToDictionary(s => s, s => allSizesDictionary.ContainsKey(s) ? allSizesDictionary[s]: "");
+
+            foreach (var s in sizesDictionary)
             {
-                if (originalImage.Width >= s && originalImage.Height >= s)
+                var size = s.Key;
+                var name = s.Value;
+                if (originalImage.Width >= size && originalImage.Height >= size)
                 {
-                    result.Add(Resize(fs, fileName, extension, s, "thumb", originalImage));
+                    result.Add(Resize(fs, fileName, extension, size, name, originalImage));
                 }
             }
 
@@ -161,6 +212,16 @@ namespace Umbraco.Core.Media
                     ep.Param[0] = new EncoderParameter(Encoder.Quality, 90L);
 
                     // Save the new image using the dimensions of the image
+                    var predictableThumbnailName = thumbnailFileName.Replace("UMBRACOSYSTHUMBNAIL", maxWidthHeight.ToString(CultureInfo.InvariantCulture));
+                    using (var ms = new MemoryStream())
+                    {
+                        bp.Save(ms, codec, ep);
+                        ms.Seek(0, 0);
+
+                        fs.AddFile(predictableThumbnailName, ms);
+                    }
+
+                    // TODO: Remove this, this is ONLY here for backwards compatibility but it is essentially completely unusable see U4-5385
                     var newFileName = thumbnailFileName.Replace("UMBRACOSYSTHUMBNAIL", string.Format("{0}x{1}", widthTh, heightTh));
                     using (var ms = new MemoryStream())
                     {

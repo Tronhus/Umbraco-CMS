@@ -8,7 +8,7 @@ namespace Umbraco.Core.Cache
     /// <summary>
     /// Extensions for strongly typed access
     /// </summary>
-    internal static class CacheProviderExtensions
+    public static class CacheProviderExtensions
     {
         public static T GetCacheItem<T>(this IRuntimeCacheProvider provider,
             string cacheKey,
@@ -38,6 +38,12 @@ namespace Umbraco.Core.Cache
         public static IEnumerable<T> GetCacheItemsByKeySearch<T>(this ICacheProvider provider, string keyStartsWith)
         {
             var result = provider.GetCacheItemsByKeySearch(keyStartsWith);
+            return result.Select(x => x.TryConvertTo<T>().Result);
+        }
+
+        public static IEnumerable<T> GetCacheItemsByKeyExpression<T>(this ICacheProvider provider, string regexString)
+        {
+            var result = provider.GetCacheItemsByKeyExpression(regexString);
             return result.Select(x => x.TryConvertTo<T>().Result);
         }
 

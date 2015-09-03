@@ -31,8 +31,29 @@ function InsertMacroController($scope, entityResource, macroResource, umbPropEdi
                                 return item.alias == key;
                             });
                             if (prop) {
-                                //we need to unescape values as they have most likely been escaped while inserted 
-                                prop.value = _.unescape(val);
+
+                                if (_.isString(val)) {
+                                    //we need to unescape values as they have most likely been escaped while inserted 
+                                    val = _.unescape(val);
+
+                                    //detect if it is a json string
+                                    if (val.detectIsJson()) {
+                                        try {
+                                            //Parse it to json
+                                            prop.value = angular.fromJson(val);
+                                        }
+                                        catch (e) {
+                                            // not json
+                                            prop.value = val;
+                                        }
+                                    }
+                                    else {
+                                        prop.value = val;
+                                    }
+                                }
+                                else {
+                                    prop.value = val;
+                                }
                             }
                         });
 
@@ -49,8 +70,21 @@ function InsertMacroController($scope, entityResource, macroResource, umbPropEdi
         //create a dictionary for the macro params
         var paramDictionary = {};
         _.each($scope.macroParams, function (item) {
+
+            var val = item.value;
+
+            if (item.value != null && item.value != undefined && !_.isString(item.value)) {
+                try {
+                    val = angular.toJson(val);
+                }
+                catch (e) {
+                    // not json           
+                }
+            }
+            
             //each value needs to be xml escaped!! since the value get's stored as an xml attribute
-            paramDictionary[item.alias] = _.escape(item.value);
+            paramDictionary[item.alias] = _.escape(val);
+
         });
         
         //need to find the macro alias for the selected id
@@ -102,7 +136,16 @@ function InsertMacroController($scope, entityResource, macroResource, umbPropEdi
     entityResource.getAll("Macro", ($scope.dialogData && $scope.dialogData.richTextEditor && $scope.dialogData.richTextEditor === true) ? "UseInEditor=true" : null)
         .then(function (data) {
 
-            $scope.macros = data;
+            //if 'allowedMacros' is specified, we need to filter
+            if (angular.isArray($scope.dialogData.allowedMacros) && $scope.dialogData.allowedMacros.length > 0) {
+                $scope.macros = _.filter(data, function(d) {
+                    return _.contains($scope.dialogData.allowedMacros, d.alias);
+                });
+            }
+            else {
+                $scope.macros = data;
+            }
+            
 
             //check if there's a pre-selected macro and if it exists
             if ($scope.dialogData && $scope.dialogData.macroData && $scope.dialogData.macroData.macroAlias) {

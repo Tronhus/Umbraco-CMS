@@ -1,18 +1,25 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Web;
 using Moq;
 using NUnit.Framework;
+using Umbraco.Core;
+using Umbraco.Core.Cache;
+using Umbraco.Core.Exceptions;
 using Umbraco.Core.Models;
+using Umbraco.Core.Models.EntityBase;
+
+using Umbraco.Core.Serialization;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.TestHelpers.Entities;
 
 namespace Umbraco.Tests.Models
 {
     [TestFixture]
-    public class ContentTests
+    public class ContentTests : BaseUmbracoConfigurationTest
     {
         [SetUp]
         public void Init()
@@ -58,8 +65,8 @@ namespace Umbraco.Tests.Models
         {
             var contentType = MockedContentTypes.CreateSimpleContentType();
             //add non-grouped properties
-            contentType.AddPropertyType(new PropertyType("test", DataTypeDatabaseType.Ntext) { Alias = "nonGrouped1", Name = "Non Grouped 1", Description = "", Mandatory = false, SortOrder = 1, DataTypeDefinitionId = -88 });
-            contentType.AddPropertyType(new PropertyType("test", DataTypeDatabaseType.Ntext) { Alias = "nonGrouped2", Name = "Non Grouped 2", Description = "", Mandatory = false, SortOrder = 1, DataTypeDefinitionId = -88 });
+            contentType.AddPropertyType(new PropertyType("test", DataTypeDatabaseType.Ntext, "nonGrouped1") { Name = "Non Grouped 1", Description = "", Mandatory = false, SortOrder = 1, DataTypeDefinitionId = -88 });
+            contentType.AddPropertyType(new PropertyType("test", DataTypeDatabaseType.Ntext, "nonGrouped2") { Name = "Non Grouped 2", Description = "", Mandatory = false, SortOrder = 1, DataTypeDefinitionId = -88 });
             
             //ensure that nothing is marked as dirty
             contentType.ResetDirtyProperties(false);
@@ -159,7 +166,7 @@ namespace Umbraco.Tests.Models
 
 
         [Test]
-        public void Can_Clone_Content()
+        public void Can_Clone_Content_With_Reset_Identity()
         {
             // Arrange
             var contentType = MockedContentTypes.CreateTextpageContentType();
@@ -175,6 +182,207 @@ namespace Umbraco.Tests.Models
             Assert.AreNotSame(clone.Id, content.Id);
             Assert.AreNotSame(clone.Version, content.Version);
             Assert.That(clone.HasIdentity, Is.False);
+
+            Assert.AreNotSame(content.Properties, clone.Properties);
+        }
+
+        [Ignore]
+        [Test]
+        public void Can_Deep_Clone_Perf_Test()
+        {
+            // Arrange
+            var contentType = MockedContentTypes.CreateTextpageContentType();
+            contentType.Id = 99;
+            var content = MockedContent.CreateTextpageContent(contentType, "Textpage", -1);
+            var i = 200;
+            foreach (var property in content.Properties)
+            {
+                property.Id = ++i;
+            }
+            content.Id = 10;
+            content.CreateDate = DateTime.Now;
+            content.CreatorId = 22;
+            content.ExpireDate = DateTime.Now;
+            content.Key = Guid.NewGuid();
+            content.Language = "en";
+            content.Level = 3;
+            content.Path = "-1,4,10";
+            content.ReleaseDate = DateTime.Now;
+            content.ChangePublishedState(PublishedState.Published);
+            content.SortOrder = 5;
+            content.Template = new Template("-1,2,3,4", "Test Template", "testTemplate")
+            {
+                Id = 88
+            };
+            content.Trashed = false;
+            content.UpdateDate = DateTime.Now;
+            content.Version = Guid.NewGuid();
+            content.WriterId = 23;
+
+            ((IUmbracoEntity)content).AdditionalData.Add("test1", 123);
+            ((IUmbracoEntity)content).AdditionalData.Add("test2", "hello");
+
+            var runtimeCache = new ObjectCacheRuntimeCacheProvider();
+            runtimeCache.InsertCacheItem(content.Id.ToString(CultureInfo.InvariantCulture), () => content);
+
+            using (DisposableTimer.DebugDuration<ContentTests>("STARTING PERF TEST WITH RUNTIME CACHE"))
+            {
+                for (int j = 0; j < 1000; j++)
+                {
+                    var clone = runtimeCache.GetCacheItem(content.Id.ToString(CultureInfo.InvariantCulture));
+                }
+            }
+
+            using (DisposableTimer.DebugDuration<ContentTests>("STARTING PERF TEST WITHOUT RUNTIME CACHE"))
+            {
+                for (int j = 0; j < 1000; j++)
+                {
+                    var clone = (ContentType)contentType.DeepClone();
+                }
+            }
+        }
+
+        [Test]
+        public void Can_Deep_Clone()
+        {
+            // Arrange
+            var contentType = MockedContentTypes.CreateTextpageContentType();
+            contentType.Id = 99;
+            var content = MockedContent.CreateTextpageContent(contentType, "Textpage", -1);
+            var i = 200;
+            foreach (var property in content.Properties)
+            {
+                property.Id = ++i;
+            }
+            content.Id = 10;
+            content.CreateDate = DateTime.Now;
+            content.CreatorId = 22;
+            content.ExpireDate = DateTime.Now;
+            content.Key = Guid.NewGuid();
+            content.Language = "en";
+            content.Level = 3;
+            content.Path = "-1,4,10";
+            content.ReleaseDate = DateTime.Now;
+            content.ChangePublishedState(PublishedState.Published);
+            content.SortOrder = 5;
+            content.Template = new Template("-1,2,3,4", "Test Template", "testTemplate")
+            {
+                Id = 88
+            };
+            content.Trashed = false;
+            content.UpdateDate = DateTime.Now;
+            content.Version = Guid.NewGuid();
+            content.WriterId = 23;
+
+            ((IUmbracoEntity)content).AdditionalData.Add("test1", 123);
+            ((IUmbracoEntity)content).AdditionalData.Add("test2", "hello");
+
+            // Act
+            var clone = (Content)content.DeepClone();
+
+            // Assert
+            Assert.AreNotSame(clone, content);
+            Assert.AreEqual(clone, content);
+            Assert.AreEqual(clone.Id, content.Id);
+            Assert.AreEqual(clone.Version, content.Version);
+            Assert.AreEqual(((IUmbracoEntity)clone).AdditionalData, ((IUmbracoEntity)content).AdditionalData);
+            Assert.AreNotSame(clone.ContentType, content.ContentType);
+            Assert.AreEqual(clone.ContentType, content.ContentType);
+            Assert.AreEqual(clone.ContentType.PropertyGroups.Count, content.ContentType.PropertyGroups.Count);
+            for (var index = 0; index < content.ContentType.PropertyGroups.Count; index++)
+            {
+                Assert.AreNotSame(clone.ContentType.PropertyGroups[index], content.ContentType.PropertyGroups[index]);
+                Assert.AreEqual(clone.ContentType.PropertyGroups[index], content.ContentType.PropertyGroups[index]);
+            }
+            Assert.AreEqual(clone.ContentType.PropertyTypes.Count(), content.ContentType.PropertyTypes.Count());
+            for (var index = 0; index < content.ContentType.PropertyTypes.Count(); index++)
+            {
+                Assert.AreNotSame(clone.ContentType.PropertyTypes.ElementAt(index), content.ContentType.PropertyTypes.ElementAt(index));
+                Assert.AreEqual(clone.ContentType.PropertyTypes.ElementAt(index), content.ContentType.PropertyTypes.ElementAt(index));
+            }
+            Assert.AreEqual(clone.ContentTypeId, content.ContentTypeId);
+            Assert.AreEqual(clone.CreateDate, content.CreateDate);
+            Assert.AreEqual(clone.CreatorId, content.CreatorId);
+            Assert.AreEqual(clone.ExpireDate, content.ExpireDate);
+            Assert.AreEqual(clone.Key, content.Key);
+            Assert.AreEqual(clone.Language, content.Language);
+            Assert.AreEqual(clone.Level, content.Level);
+            Assert.AreEqual(clone.Path, content.Path);
+            Assert.AreEqual(clone.ReleaseDate, content.ReleaseDate);
+            Assert.AreEqual(clone.Published, content.Published);
+            Assert.AreEqual(clone.PublishedState, content.PublishedState);
+            Assert.AreEqual(clone.SortOrder, content.SortOrder);
+            Assert.AreEqual(clone.PublishedState, content.PublishedState);
+            Assert.AreNotSame(clone.Template, content.Template);
+            Assert.AreEqual(clone.Template, content.Template);
+            Assert.AreEqual(clone.Trashed, content.Trashed);
+            Assert.AreEqual(clone.UpdateDate, content.UpdateDate);
+            Assert.AreEqual(clone.Version, content.Version);
+            Assert.AreEqual(clone.WriterId, content.WriterId);
+            Assert.AreNotSame(clone.Properties, content.Properties);
+            Assert.AreEqual(clone.Properties.Count(), content.Properties.Count());
+            for (var index = 0; index < content.Properties.Count; index++)
+            {
+                Assert.AreNotSame(clone.Properties[index], content.Properties[index]);
+                Assert.AreEqual(clone.Properties[index], content.Properties[index]);
+            }
+
+            //This double verifies by reflection
+            var allProps = clone.GetType().GetProperties();
+            foreach (var propertyInfo in allProps)
+            {
+                Assert.AreEqual(propertyInfo.GetValue(clone, null), propertyInfo.GetValue(content, null));
+            }
+
+            //need to ensure the event handlers are wired
+
+            var asDirty = (ICanBeDirty)clone;
+
+            Assert.IsFalse(asDirty.IsPropertyDirty("Properties"));
+            clone.Properties.Add(new Property(1, Guid.NewGuid(), new PropertyType("test", DataTypeDatabaseType.Ntext, "blah"), "blah"));
+            Assert.IsTrue(asDirty.IsPropertyDirty("Properties"));
+        }
+
+        [Test]
+        public void Can_Serialize_Without_Error()
+        {
+            var ss = new SerializationService(new JsonNetSerializer());
+
+            // Arrange
+            var contentType = MockedContentTypes.CreateTextpageContentType();
+            contentType.Id = 99;
+            var content = MockedContent.CreateTextpageContent(contentType, "Textpage", -1);
+            var i = 200;
+            foreach (var property in content.Properties)
+            {
+                property.Id = ++i;
+            }
+            content.Id = 10;
+            content.CreateDate = DateTime.Now;
+            content.CreatorId = 22;
+            content.ExpireDate = DateTime.Now;
+            content.Key = Guid.NewGuid();
+            content.Language = "en";
+            content.Level = 3;
+            content.Path = "-1,4,10";
+            content.ReleaseDate = DateTime.Now;
+            content.ChangePublishedState(PublishedState.Published);
+            content.SortOrder = 5;
+            content.Template = new Template("-1,2,3,4", "Test Template", "testTemplate")
+            {
+                Id = 88
+            };
+            content.Trashed = false;
+            content.UpdateDate = DateTime.Now;
+            content.Version = Guid.NewGuid();
+            content.WriterId = 23;
+
+            ((IUmbracoEntity)content).AdditionalData.Add("test1", 123);
+            ((IUmbracoEntity)content).AdditionalData.Add("test2", "hello");
+
+            var result = ss.ToStream(content);
+            var json = result.ResultStream.ToJsonString();
+            Console.WriteLine(json);
         }
 
         /*[Test]
@@ -213,7 +421,7 @@ namespace Umbraco.Tests.Models
             Assert.That(content.Properties["title"], Is.Not.Null);
             Assert.That(content.Properties["title"].Alias, Is.EqualTo("title"));
             Assert.That(content.Properties["title"].Value, Is.EqualTo("This is the new title"));
-            Assert.That(content.Properties["metaDescription"].Value, Is.EqualTo("This is the meta description for a textpage"));
+            Assert.That(content.Properties["description"].Value, Is.EqualTo("This is the meta description for a textpage"));
         }
 
         [Test]
@@ -270,12 +478,10 @@ namespace Umbraco.Tests.Models
             var content = MockedContent.CreateTextpageContent(contentType, "Textpage", -1);
 
             // Act
-            contentType.PropertyGroups["Content"].PropertyTypes.Add(new PropertyType("test", DataTypeDatabaseType.Ntext)
+            contentType.PropertyGroups["Content"].PropertyTypes.Add(new PropertyType("test", DataTypeDatabaseType.Ntext, "subtitle")
                                                                         {
-                                                                            Alias = "subtitle",
                                                                             Name = "Subtitle",
                                                                             Description = "Optional subtitle",
-                                                                            HelpText = "",
                                                                             Mandatory = false,
                                                                             SortOrder = 3,
                                                                             DataTypeDefinitionId = -88
@@ -294,9 +500,9 @@ namespace Umbraco.Tests.Models
             var content = MockedContent.CreateTextpageContent(contentType, "Textpage", -1);
 
             // Act
-            var propertyType = new PropertyType("test", DataTypeDatabaseType.Ntext)
+            var propertyType = new PropertyType("test", DataTypeDatabaseType.Ntext, "subtitle")
                                    {
-                                       Alias = "subtitle", Name = "Subtitle", Description = "Optional subtitle", HelpText = "", Mandatory = false, SortOrder = 3, DataTypeDefinitionId = -88
+                                        Name = "Subtitle", Description = "Optional subtitle", Mandatory = false, SortOrder = 3, DataTypeDefinitionId = -88
                                    };
             contentType.PropertyGroups["Content"].PropertyTypes.Add(propertyType);
             content.Properties.Add(new Property(propertyType){Value = "This is a subtitle Test"});
@@ -314,12 +520,10 @@ namespace Umbraco.Tests.Models
             var content = MockedContent.CreateTextpageContent(contentType, "Textpage", -1);
 
             // Act
-            var propertyType = new PropertyType("test", DataTypeDatabaseType.Ntext)
+            var propertyType = new PropertyType("test", DataTypeDatabaseType.Ntext, "subtitle")
                                    {
-                                       Alias = "subtitle",
                                        Name = "Subtitle",
                                        Description = "Optional subtitle",
-                                       HelpText = "",
                                        Mandatory = false,
                                        SortOrder = 3,
                                        DataTypeDefinitionId = -88
@@ -345,9 +549,9 @@ namespace Umbraco.Tests.Models
             var content = MockedContent.CreateTextpageContent(contentType, "Textpage", -1);
 
             // Act - note that the PropertyType's properties like SortOrder is not updated through the Content object
-            var propertyType = new PropertyType("test", DataTypeDatabaseType.Ntext)
+            var propertyType = new PropertyType("test", DataTypeDatabaseType.Ntext, "title")
                                    {
-                                       Alias = "title", Name = "Title", Description = "Title description added", HelpText = "", Mandatory = false, SortOrder = 10, DataTypeDefinitionId = -88
+                                        Name = "Title", Description = "Title description added", Mandatory = false, SortOrder = 10, DataTypeDefinitionId = -88
                                    };
             content.Properties.Add(new Property(propertyType));
 
@@ -407,9 +611,9 @@ namespace Umbraco.Tests.Models
             // Assert
             Assert.That(content.Properties.Contains("author"), Is.True);
             Assert.That(content.Properties.Contains("keywords"), Is.True);
-            Assert.That(content.Properties.Contains("metaDescription"), Is.True);
+            Assert.That(content.Properties.Contains("description"), Is.True);
             Assert.That(content.Properties["keywords"].Value, Is.EqualTo("text,page,meta"));
-            Assert.That(content.Properties["metaDescription"].Value, Is.EqualTo("This is the meta description for a textpage"));
+            Assert.That(content.Properties["description"].Value, Is.EqualTo("This is the meta description for a textpage"));
         }
 
         [Test]
@@ -426,7 +630,7 @@ namespace Umbraco.Tests.Models
             // Assert
             Assert.That(content.Properties.Contains("author"), Is.True);
             Assert.That(content.Properties.Contains("keywords"), Is.False);
-            Assert.That(content.Properties.Contains("metaDescription"), Is.False);
+            Assert.That(content.Properties.Contains("description"), Is.False);
         }
 
         [Test]
@@ -498,6 +702,37 @@ namespace Umbraco.Tests.Models
         }
 
         [Test]
+        public void After_Committing_Changes_Was_Dirty_Is_True_On_Changed_Property()
+        {
+            // Arrange
+            var contentType = MockedContentTypes.CreateTextpageContentType();
+            contentType.ResetDirtyProperties(); //reset
+            var content = MockedContent.CreateTextpageContent(contentType, "test", -1);
+            content.ResetDirtyProperties();
+
+            // Act
+            content.SetPropertyValue("title", "new title");
+            Assert.That(content.IsEntityDirty(), Is.False);
+            Assert.That(content.IsDirty(), Is.True);
+            Assert.That(content.IsPropertyDirty("title"), Is.True);
+            Assert.That(content.IsAnyUserPropertyDirty(), Is.True);
+            Assert.That(content.GetDirtyUserProperties().Count(), Is.EqualTo(1));
+            Assert.That(content.Properties[0].IsDirty(), Is.True);
+            Assert.That(content.Properties["title"].IsDirty(), Is.True);
+            
+            content.ResetDirtyProperties(); //this would be like committing the entity
+
+            // Assert
+            Assert.That(content.WasDirty(), Is.True);
+            Assert.That(content.Properties[0].WasDirty(), Is.True);
+
+
+            Assert.That(content.WasPropertyDirty("title"), Is.True);
+            Assert.That(content.Properties["title"].IsDirty(), Is.False);
+            Assert.That(content.Properties["title"].WasDirty(), Is.True);
+        }
+
+        [Test]
         public void If_Not_Committed_Was_Dirty_Is_False()
         {
             // Arrange
@@ -533,12 +768,10 @@ namespace Umbraco.Tests.Models
             contentType.ResetDirtyProperties();
 
             // Act
-            var propertyType = new PropertyType("test", DataTypeDatabaseType.Ntext)
+            var propertyType = new PropertyType("test", DataTypeDatabaseType.Ntext, "subtitle")
                                    {
-                                       Alias = "subtitle",
                                        Name = "Subtitle",
                                        Description = "Optional subtitle",
-                                       HelpText = "",
                                        Mandatory = false,
                                        SortOrder = 3,
                                        DataTypeDefinitionId = -88
@@ -560,12 +793,10 @@ namespace Umbraco.Tests.Models
                                                                                 new PropertyTypeCollection(
                                                                                     new List<PropertyType>
                                                                                         {
-                                                                                            new PropertyType("test", DataTypeDatabaseType.Ntext)
+                                                                                            new PropertyType("test", DataTypeDatabaseType.Ntext, "coauthor")
                                                                                                 {
-                                                                                                    Alias = "coauthor",
                                                                                                     Name = "Co-Author",
                                                                                                     Description = "Name of the Co-Author",
-                                                                                                    HelpText = "",
                                                                                                     Mandatory = false,
                                                                                                     SortOrder = 4,
                                                                                                     DataTypeDefinitionId = -88
@@ -593,12 +824,10 @@ namespace Umbraco.Tests.Models
                                                                                 new PropertyTypeCollection(
                                                                                     new List<PropertyType>
                                                                                         {
-                                                                                            new PropertyType("test", DataTypeDatabaseType.Ntext)
+                                                                                            new PropertyType("test", DataTypeDatabaseType.Ntext, "coauthor")
                                                                                                 {
-                                                                                                    Alias = "coauthor",
                                                                                                     Name = "Co-Author",
                                                                                                     Description = "Name of the Co-Author",
-                                                                                                    HelpText = "",
                                                                                                     Mandatory = false,
                                                                                                     SortOrder = 4,
                                                                                                     DataTypeDefinitionId = -88
@@ -623,17 +852,15 @@ namespace Umbraco.Tests.Models
         public void Can_Avoid_Circular_Dependencies_In_Composition()
         {
             var textPage = MockedContentTypes.CreateTextpageContentType();
-            var parent = MockedContentTypes.CreateSimpleContentType("parent", "Parent");
+            var parent = MockedContentTypes.CreateSimpleContentType("parent", "Parent", null, true);
             var meta = MockedContentTypes.CreateMetaContentType();
             var mixin1 = MockedContentTypes.CreateSimpleContentType("mixin1", "Mixin1", new PropertyTypeCollection(
                                                                                     new List<PropertyType>
                                                                                         {
-                                                                                            new PropertyType("test", DataTypeDatabaseType.Ntext)
+                                                                                            new PropertyType("test", DataTypeDatabaseType.Ntext, "coauthor")
                                                                                                 {
-                                                                                                    Alias = "coauthor",
                                                                                                     Name = "Co-Author",
                                                                                                     Description = "Name of the Co-Author",
-                                                                                                    HelpText = "",
                                                                                                     Mandatory = false,
                                                                                                     SortOrder = 4,
                                                                                                     DataTypeDefinitionId = -88
@@ -642,12 +869,10 @@ namespace Umbraco.Tests.Models
             var mixin2 = MockedContentTypes.CreateSimpleContentType("mixin2", "Mixin2", new PropertyTypeCollection(
                                                                                     new List<PropertyType>
                                                                                         {
-                                                                                            new PropertyType("test", DataTypeDatabaseType.Ntext)
+                                                                                            new PropertyType("test", DataTypeDatabaseType.Ntext, "author")
                                                                                                 {
-                                                                                                    Alias = "author",
                                                                                                     Name = "Author",
                                                                                                     Description = "Name of the Author",
-                                                                                                    HelpText = "",
                                                                                                     Mandatory = false,
                                                                                                     SortOrder = 4,
                                                                                                     DataTypeDefinitionId = -88
@@ -658,7 +883,9 @@ namespace Umbraco.Tests.Models
             var addedMetaMixin2 = mixin2.AddContentType(meta);
             var addedMixin2 = mixin1.AddContentType(mixin2);
             var addedMeta = parent.AddContentType(meta);
+
             var addedMixin1 = parent.AddContentType(mixin1);
+
             var addedMixin1Textpage = textPage.AddContentType(mixin1);
             var addedTextpageParent = parent.AddContentType(textPage);
 

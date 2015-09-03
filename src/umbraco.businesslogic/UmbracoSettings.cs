@@ -15,7 +15,7 @@ namespace umbraco
     /// <summary>
     /// The UmbracoSettings Class contains general settings information for the entire Umbraco instance based on information from the /config/umbracoSettings.config file
     /// </summary>
-    [Obsolete("Use UmbracoConfiguration.Current.UmbracoSettings instead, it offers all settings in strongly typed formats. This class will be removed in future versions.")]
+    [Obsolete("Use UmbracoConfig.For.UmbracoSettings() instead, it offers all settings in strongly typed formats. This class will be removed in future versions.")]
     public class UmbracoSettings
     {
         [Obsolete("This hasn't been used since 4.1!")]
@@ -451,7 +451,7 @@ namespace umbraco
 
         /// <summary>
         /// Gets all repositories registered, and returns them as XmlNodes, containing name, alias and webservice url.
-        /// These repositories are used by the build-in package installer and uninstaller to install new packages and check for updates.
+        /// These repositories are used by the built-in package installer and uninstaller to install new packages and check for updates.
         /// All repositories should have a unique alias.
         /// All packages installed from a repository gets the repository alias included in the install information
         /// </summary>

@@ -21,7 +21,10 @@ namespace Umbraco.Tests.Models
 
         protected override void FreezeResolution()
         {
-            UrlSegmentProviderResolver.Current = new UrlSegmentProviderResolver(typeof(DefaultUrlSegmentProvider));
+            UrlSegmentProviderResolver.Current = new UrlSegmentProviderResolver(
+                new ActivatorServiceProvider(), 
+                Logger,
+                typeof(DefaultUrlSegmentProvider));
             base.FreezeResolution();
         }
 
@@ -69,7 +72,7 @@ namespace Umbraco.Tests.Models
             Assert.AreEqual(content.Properties["title"].Value.ToString(), element.Elements("title").Single().Value);
             Assert.AreEqual(content.Properties["bodyText"].Value.ToString(), element.Elements("bodyText").Single().Value);
             Assert.AreEqual(content.Properties["keywords"].Value.ToString(), element.Elements("keywords").Single().Value);
-            Assert.AreEqual(content.Properties["metaDescription"].Value.ToString(), element.Elements("metaDescription").Single().Value);
+            Assert.AreEqual(content.Properties["description"].Value.ToString(), element.Elements("description").Single().Value);
         } 
     }
 }

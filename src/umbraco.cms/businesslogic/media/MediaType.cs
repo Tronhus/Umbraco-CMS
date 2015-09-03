@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using Umbraco.Core;
 using Umbraco.Core.Models;
-using Umbraco.Core.Persistence.Caching;
 using System.Linq;
 using umbraco.BusinessLogic;
 
@@ -48,7 +47,11 @@ namespace umbraco.cms.businesslogic.media
 
         #region Private Members
 
-        private IMediaType _mediaType;
+        private IMediaType MediaTypeItem
+        {
+            get { return base.ContentTypeItem as IMediaType; }
+            set { base.ContentTypeItem = value; }
+        }
 
         #endregion
 
@@ -98,7 +101,7 @@ namespace umbraco.cms.businesslogic.media
 
         internal static MediaType MakeNew(User u, string text, int parentId)
         {
-            var mediaType = new Umbraco.Core.Models.MediaType(parentId) { Name = text, Alias = text, CreatorId = u.Id, Thumbnail = "folder.png", Icon = "folder.gif" };
+            var mediaType = new Umbraco.Core.Models.MediaType(parentId) { Name = text, Alias = text, CreatorId = u.Id, Thumbnail = "icon-folder", Icon = "icon-folder" };
             ApplicationContext.Current.Services.ContentTypeService.Save(mediaType, u.Id);
             var mt = new MediaType(mediaType.Id);
 
@@ -120,18 +123,9 @@ namespace umbraco.cms.businesslogic.media
 
             if (!e.Cancel)
             {
-                if (MasterContentType != 0)
-                    _mediaType.ParentId = MasterContentType;
-
-                foreach (var masterContentType in MasterContentTypes)
-                {
-                    var contentType = ApplicationContext.Current.Services.ContentTypeService.GetMediaType(masterContentType);
-                    _mediaType.AddContentType(contentType);
-                }
-
                 var current = User.GetCurrent();
                 int userId = current == null ? 0 : current.Id;
-                ApplicationContext.Current.Services.ContentTypeService.Save(_mediaType, userId);
+                ApplicationContext.Current.Services.ContentTypeService.Save(MediaTypeItem, userId);
 
                 base.Save();
 
@@ -155,7 +149,7 @@ namespace umbraco.cms.businesslogic.media
                     throw new ArgumentException("Can't delete a Media Type used as a Master Content Type. Please remove all references first!");
                 }
 
-                ApplicationContext.Current.Services.ContentTypeService.Delete(_mediaType);
+                ApplicationContext.Current.Services.ContentTypeService.Delete(MediaTypeItem);
 
                 FireAfterDelete(e);
             }
@@ -175,10 +169,10 @@ namespace umbraco.cms.businesslogic.media
         #region Private Methods
         private void SetupNode(IMediaType mediaType)
         {
-            _mediaType = mediaType;
+            MediaTypeItem = mediaType;
 
-            base.PopulateContentTypeFromContentTypeBase(_mediaType);
-            base.PopulateCMSNodeFromUmbracoEntity(_mediaType, _objectType);
+            base.PopulateContentTypeFromContentTypeBase(MediaTypeItem);
+            base.PopulateCMSNodeFromUmbracoEntity(MediaTypeItem, _objectType);
         }
         #endregion
 

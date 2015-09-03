@@ -31,7 +31,6 @@ angular.module('umbraco')
 			var d = dialogService.treePicker({
 								section: $scope.model.value.type,
 								treeAlias: $scope.model.value.type,
-								scope: $scope, 
 								multiPicker: false,
 								callback: populate});
 		};
@@ -44,11 +43,16 @@ angular.module('umbraco')
 		
 
 		//we always need to ensure we dont submit anything broken
-	    $scope.$on("formSubmitting", function (ev, args) {
+	    var unsubscribe = $scope.$on("formSubmitting", function (ev, args) {
 	    	if($scope.model.value.type === "member"){
 	    		$scope.model.value.id = -1;
 	    		$scope.model.value.query = "";
 	    	}
+	    });
+
+	    //when the scope is destroyed we need to unsubscribe
+	    $scope.$on('$destroy', function () {
+	        unsubscribe();
 	    });
 
 		function populate(item){

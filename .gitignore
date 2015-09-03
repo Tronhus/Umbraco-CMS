@@ -51,6 +51,7 @@ _BuildOutput/*
 build/UmbracoCms.AllBinaries*zip
 build/UmbracoCms.WebPI*zip
 build/UmbracoCms*zip
+build/UmbracoExamine.PDF*zip
 build/*.nupkg
 src/Umbraco.Tests/config/applications.config
 src/Umbraco.Tests/config/trees.config
@@ -77,6 +78,12 @@ src/Umbraco.Web.UI/[Uu]mbraco/[Jj]s/app.dev.js
 src/Umbraco.Web.UI/[Uu]mbraco/[Jj]s/loader.js
 src/Umbraco.Web.UI/[Uu]mbraco/[Jj]s/main.js
 src/Umbraco.Web.UI/[Uu]mbraco/[Jj]s/app.js
+
+src/Umbraco.Web.UI/[Uu]mbraco/[Jj]s/tuning.panel.js
+src/Umbraco.Web.UI/[Uu]mbraco/[Jj]s/tuning.palettes.js
+src/Umbraco.Web.UI/[Uu]mbraco/[Jj]s/tuning.loader.js
+src/Umbraco.Web.UI/[Uu]mbraco/[Jj]s/tuning.front.js
+src/Umbraco.Web.UI/[Uu]mbraco/[Jj]s/tuning.config.js
 
 src/Umbraco.Web.UI/[Uu]mbraco/[Vv]iews/
 src/Umbraco.Web.UI/[Uu]mbraco/[Vv]iews/**/*.js
@@ -109,3 +116,17 @@ src/Umbraco.Web.UI/umbraco/plugins/*
 src/Umbraco.Web.UI/umbraco/js/init.js
 build/ApiDocs/*
 build/ApiDocs/Output/*
+src/Umbraco.Web.UI.Client/bower_components/*
+/src/Umbraco.Web.UI/Umbraco/preview
+
+#Ignore Rule for output of generated documentation files from Grunt docserve
+src/Umbraco.Web.UI.Client/docs/api
+src/*.boltdata/
+/src/Umbraco.Web.UI/Umbraco/Js/canvasdesigner.loader.js
+/src/Umbraco.Web.UI/Umbraco/Js/canvasdesigner.palettes.js
+/src/Umbraco.Web.UI/Umbraco/Js/canvasdesigner.panel.js
+/src/Umbraco.Web.UI/Umbraco/Js/canvasdesigner.config.js
+/src/Umbraco.Web.UI/Umbraco/Js/canvasdesigner.front.js
+src/umbraco.sln.ide/*
+build/UmbracoCms.*/
+src/.vs/

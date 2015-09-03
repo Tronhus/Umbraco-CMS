@@ -7,7 +7,7 @@ module.exports = function(karma) {
 
     // list of files / patterns to load in the browser
     files: [
-        'lib/jquery/jquery-2.0.3.min.js',
+        'lib/../build/belle/lib/jquery/jquery.min.js',
         'lib/angular/1.1.5/angular.js',
         'lib/angular/1.1.5/angular-cookies.min.js',
         'lib/angular/1.1.5/angular-mocks.js',
@@ -23,9 +23,9 @@ module.exports = function(karma) {
          'lib/angular/1.2/angular-mocks.js',*/
          
 
-         'lib/underscore/underscore.js',
+         'lib/../build/belle/lib/underscore/underscore-min.js',
          'lib/umbraco/Extensions.js', 
-         'lib/yepnope/yepnope.min.js',
+         'lib/../build/belle/lib/rgrove-lazyload/lazyload.js',
 
 
          'test/config/app.unit.js',
@@ -94,15 +94,8 @@ module.exports = function(karma) {
     // CLI --report-slower-than 500
     reportSlowerThan: 500,
 
-    // compile coffee scripts
-    preprocessors: {
-      '**/*.coffee': 'coffee'
-    },
-
     plugins: [
       'karma-jasmine',
-      'karma-chrome-launcher',
-      'karma-firefox-launcher',
       'karma-phantomjs-launcher'
     ]
   });

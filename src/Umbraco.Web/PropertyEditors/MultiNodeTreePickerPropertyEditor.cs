@@ -16,7 +16,8 @@ namespace Umbraco.Web.PropertyEditors
         {
             _internalPreValues = new Dictionary<string, object>
                 {
-                    {"multiPicker", "1"}
+                    {"multiPicker", "1"},
+                    {"showEditButton", "0"}
                 };
         }
         
@@ -37,14 +38,17 @@ namespace Umbraco.Web.PropertyEditors
             [PreValueField("startNode", "Node type", "treesource")]
             public string StartNode { get; set; }
             
-            [PreValueField("filter", "Filter out items with type", "textstring", Description = "Seperate with comma")]
+            [PreValueField("filter", "Allow items of type", "textstring", Description = "Separate with comma")]
             public string Filter { get; set; }
 
-            [PreValueField("minNumber", "Minumum number of items", "number")]
+            [PreValueField("minNumber", "Minimum number of items", "number")]
             public string MinNumber { get; set; }
 
             [PreValueField("maxNumber", "Maximum number of items", "number")]
             public string MaxNumber { get; set; }
+
+            [PreValueField("showEditButton", "Show edit button (this feature is in preview!)", "boolean")]
+            public string ShowEditButton { get; set; }
 
             /// <summary>
             /// This ensures the multiPicker pre-val is set based on the maxNumber of nodes set
@@ -67,18 +71,22 @@ namespace Umbraco.Web.PropertyEditors
                 }
 
                 //set the multiPicker val correctly depending on the maxNumber
-                var asNumber = result["maxNumber"].TryConvertTo<int>();
-                if (asNumber.Success)
+                if (result.ContainsKey("maxNumber"))
                 {
-                    if (asNumber.Result <= 1)
+                    var asNumber = result["maxNumber"].TryConvertTo<int>();
+                    if (asNumber.Success)
                     {
-                        result["multiPicker"] = "0";
-                    }
-                    else
-                    {
-                        result["multiPicker"] = "1";
-                    }
+                        if (asNumber.Result <= 1)
+                        {
+                            result["multiPicker"] = "0";
+                        }
+                        else
+                        {
+                            result["multiPicker"] = "1";
+                        }
+                    }    
                 }
+                
 
                 return result;
             }
